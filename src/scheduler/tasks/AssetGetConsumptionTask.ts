@@ -15,6 +15,7 @@ import { TaskConfig } from '../../types/TaskConfig';
 import Tenant from '../../types/Tenant';
 import TenantComponents from '../../types/TenantComponents';
 import Utils from '../../utils/Utils';
+import moment from 'moment';
 
 const MODULE_NAME = 'AssetGetConsumptionTask';
 
@@ -39,29 +40,48 @@ export default class AssetGetConsumptionTask extends SchedulerTask {
             const assetImpl = await AssetFactory.getAssetImpl(tenant.id, asset.connectionID);
             if (assetImpl) {
               // Retrieve Consumption
-              const assetConsumption = await assetImpl.retrieveConsumption(asset);
-              // Set Consumption to Asset
-              this.assignAssetConsumption(asset, assetConsumption);
+              const assetConsumptions = await assetImpl.retrieveConsumptions(asset);
+              // Create helper for site area limit
+              const siteAreaLimitConsumption: Consumption = {
+                startedAt: assetConsumptions[0].lastConsumption.timestamp,
+                cumulatedConsumptionWh: assetConsumptions[0].currentConsumptionWh,
+                cumulatedConsumptionAmps: Math.floor(assetConsumptions[0].currentConsumptionWh / asset.siteArea.voltage),
+              };
+              await OCPPUtils.addSiteLimitationToConsumption(tenant.id, asset.siteArea, siteAreaLimitConsumption);
+              // Create Consumptions
+              for (const consumption of assetConsumptions) {
+                // Check if last consumption already exists
+                if (asset.lastConsumption?.timestamp && moment(consumption.lastConsumption.timestamp).diff(moment(asset.lastConsumption.timestamp), 'seconds') < 50) {
+                  continue;
+                }
+                // Create Consumption to save
+                const consumptionToSave: Consumption = {
+                  startedAt: asset.lastConsumption?.timestamp ? asset.lastConsumption.timestamp : moment(consumption.lastConsumption.timestamp).subtract(1, 'minutes').toDate(),
+                  endedAt: consumption.lastConsumption.timestamp,
+                  assetID: asset.id,
+                  siteAreaID: asset.siteAreaID,
+                  siteID: asset.siteArea.siteID,
+                  cumulatedConsumptionWh: consumption.currentConsumptionWh,
+                  cumulatedConsumptionAmps: Math.floor(consumption.currentConsumptionWh / asset.siteArea.voltage),
+                  instantAmps: consumption.currentInstantAmps,
+                  instantWatts: consumption.currentInstantWatts,
+                  stateOfCharge: consumption.currentStateOfCharge,
+                  limitSiteAreaWatts: siteAreaLimitConsumption.limitSiteAreaWatts,
+                  limitSiteAreaAmps: siteAreaLimitConsumption.limitSiteAreaAmps,
+                  limitSiteAreaSource: siteAreaLimitConsumption.limitSiteAreaSource,
+                  smartChargingActive: siteAreaLimitConsumption.smartChargingActive,
+                };
+                // Save Consumption
+                await ConsumptionStorage.saveConsumption(tenant.id, consumptionToSave);
+                // Set Consumption to Asset
+                this.assignAssetConsumption(asset, consumption);
+              }
               // Save Asset
               await AssetStorage.saveAsset(tenant.id, asset);
-              // Create Consumption
-              const consumption: Consumption = {
-                startedAt: asset.lastConsumption.timestamp,
-                endedAt: new Date(),
-                assetID: asset.id,
-                cumulatedConsumptionWh: asset.currentConsumptionWh,
-                cumulatedConsumptionAmps: Math.floor(asset.currentConsumptionWh / 230),
-                instantAmps: asset.currentInstantAmps,
-                instantWatts: asset.currentInstantWatts,
-              };
-              // Add limits
-              await OCPPUtils.addSiteLimitationToConsumption(tenant.id, asset.siteArea, consumption);
-              // Save Consumption
-              await ConsumptionStorage.saveConsumption(tenant.id, consumption);
             }
           } catch (error) {
             // Log error
-            Logging.logActionExceptionMessage(tenant.id, ServerAction.RETRIEVE_ASSET_CONSUMPTION, error);
+            await Logging.logActionExceptionMessage(tenant.id, ServerAction.RETRIEVE_ASSET_CONSUMPTION, error);
           } finally {
             // Release the lock
             await LockingManager.release(assetLock);
@@ -87,5 +107,6 @@ export default class AssetGetConsumptionTask extends SchedulerTask {
     asset.currentInstantWattsL1 = consumption.currentInstantWattsL1;
     asset.currentInstantWattsL2 = consumption.currentInstantWattsL2;
     asset.currentInstantWattsL3 = consumption.currentInstantWattsL3;
+    asset.currentStateOfCharge = consumption.currentStateOfCharge;
   }
 }

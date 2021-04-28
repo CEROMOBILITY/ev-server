@@ -43,9 +43,7 @@
   "CentralSystemFrontEnd": {
     "protocol": "http",
     "host": "localhost",
-    "port": 3080,
-    "distEnabled": false,
-    "distPath": "../dist/front-end"
+    "port": 3080
   },
   "CentralSystemServer": {
     "protocol": "http",
@@ -87,6 +85,10 @@
   "WSClient": {
     "autoReconnectMaxRetries": 10,
     "autoReconnectTimeout": 60
+  },
+  "AsyncTask": {
+    "active": true,
+    "nbrTasksInParallel": 4
   },
   "Storage": {
     "implementation": "mongodb",
@@ -144,7 +146,8 @@
       "fr_FR",
       "es_MX",
       "de_DE",
-      "pt_PT"
+      "pt_PT",
+      "it_IT"
     ]
   },
   "Migration": {
@@ -219,7 +222,7 @@
         }
       },
       {
-        "name": "OCPIPushLocationsTask",
+        "name": "OCPIPushEVSEStatusesTask",
         "active": false,
         "periodicity": "0 1 * * *",
         "config": {}

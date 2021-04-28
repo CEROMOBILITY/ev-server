@@ -9,10 +9,10 @@ import Logging from '../../utils/Logging';
 import OCPICredential from '../../types/ocpi/OCPICredential';
 import OCPIEndpoint from '../../types/ocpi/OCPIEndpoint';
 import OCPIEndpointStorage from '../../storage/mongodb/OCPIEndpointStorage';
-import OCPIMapping from '../../server/ocpi/ocpi-services-impl/ocpi-2.1.1/OCPIMapping';
 import { OCPIRegistrationStatus } from '../../types/ocpi/OCPIRegistrationStatus';
 import { OCPIRole } from '../../types/ocpi/OCPIRole';
 import OCPIUtils from '../../server/ocpi/OCPIUtils';
+import OCPIUtilsService from '../../server/ocpi/ocpi-services-impl/ocpi-2.1.1/OCPIUtilsService';
 import { OcpiSetting } from '../../types/Setting';
 import { ServerAction } from '../../types/Server';
 import Tenant from '../../types/Tenant';
@@ -40,7 +40,7 @@ export default abstract class OCPIClient {
     this.role = role.toLowerCase();
   }
 
-  async ping(): Promise<any> {
+  public async ping(): Promise<any> {
     const pingResult: any = {};
     // Try to access base Url (GET .../versions)
     // Access versions API
@@ -49,7 +49,7 @@ export default abstract class OCPIClient {
       const endpoints = await this.getVersions();
       // Check response
       if (!endpoints.data || !(endpoints.data.status_code === 1000) || !endpoints.data.data) {
-        pingResult.statusCode = 412;
+        pingResult.statusCode = StatusCodes.PRECONDITION_FAILED;
         pingResult.statusText = `Invalid response from GET ${this.ocpiEndpoint.baseUrl}`;
       } else {
         pingResult.statusCode = endpoints.status;
@@ -63,7 +63,7 @@ export default abstract class OCPIClient {
     return pingResult;
   }
 
-  async unregister(): Promise<any> {
+  public async unregister(): Promise<any> {
     const unregisterResult: any = {};
     try {
       // Get available version.
@@ -102,7 +102,7 @@ export default abstract class OCPIClient {
     return unregisterResult;
   }
 
-  async register(): Promise<any> {
+  public async register(): Promise<any> {
     const registerResult: any = {};
     try {
       // Get available version.
@@ -128,7 +128,7 @@ export default abstract class OCPIClient {
       // Try to read services
       const services = await this.getServices();
       // Set available endpoints
-      this.ocpiEndpoint.availableEndpoints = OCPIMapping.convertEndpoints(services.data.data);
+      this.ocpiEndpoint.availableEndpoints = OCPIUtilsService.convertEndpoints(services.data.data);
       this.ocpiEndpoint.localToken = OCPIUtils.generateLocalToken(this.tenant.subdomain);
       // Post credentials and receive response
       const respPostCredentials = await this.postCredentials();
@@ -153,7 +153,7 @@ export default abstract class OCPIClient {
     return registerResult;
   }
 
-  async getVersions(): Promise<any> {
+  public async getVersions(): Promise<any> {
     Logging.logInfo({
       tenantID: this.tenant.id,
       action: ServerAction.OCPI_GET_VERSIONS,
@@ -168,10 +168,7 @@ export default abstract class OCPIClient {
     return response;
   }
 
-  /**
-   * GET /ocpi/{role}/{version}
-   */
-  async getServices(): Promise<any> {
+  public async getServices(): Promise<any> {
     // Log
     Logging.logInfo({
       tenantID: this.tenant.id,
@@ -187,7 +184,7 @@ export default abstract class OCPIClient {
     return response;
   }
 
-  async deleteCredentials(): Promise<AxiosResponse<OCPICredential>> {
+  public async deleteCredentials(): Promise<AxiosResponse<OCPICredential>> {
     // Get credentials url
     const credentialsUrl = this.getEndpointUrl('credentials', ServerAction.OCPI_POST_CREDENTIALS);
     // Log
@@ -208,13 +205,10 @@ export default abstract class OCPIClient {
     return response;
   }
 
-  /**
-   * POST /ocpi/{role}/{version}/credentials
-   */
-  async postCredentials(): Promise<AxiosResponse<OCPICredential>> {
+  public async postCredentials(): Promise<AxiosResponse<OCPICredential>> {
     // Get credentials url
     const credentialsUrl = this.getEndpointUrl('credentials', ServerAction.OCPI_POST_CREDENTIALS);
-    const credentials = await OCPIMapping.buildOCPICredentialObject(this.tenant.id, this.ocpiEndpoint.localToken, this.ocpiEndpoint.role);
+    const credentials = await OCPIUtilsService.buildOCPICredentialObject(this.tenant.id, this.ocpiEndpoint.localToken, this.ocpiEndpoint.role);
     // Log
     Logging.logInfo({
       tenantID: this.tenant.id,
@@ -234,7 +228,7 @@ export default abstract class OCPIClient {
     return response;
   }
 
-  getLocalCountryCode(action: ServerAction): string {
+  public getLocalCountryCode(action: ServerAction): string {
     if (!this.settings[this.role]) {
       throw new BackendError({
         action, message: `OCPI Settings are missing for role ${this.role}`,
@@ -250,7 +244,7 @@ export default abstract class OCPIClient {
     return this.settings[this.role].countryCode;
   }
 
-  getLocalPartyID(action: ServerAction): string {
+  public getLocalPartyID(action: ServerAction): string {
     if (!this.settings[this.role]) {
       throw new BackendError({
         action, message: `OCPI Settings are missing for role ${this.role}`,

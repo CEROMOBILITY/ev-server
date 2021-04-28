@@ -1,10 +1,16 @@
 import CreatedUpdatedProps from './CreatedUpdatedProps';
 import TenantComponents from './TenantComponents';
 
-export interface Setting {
+export enum TechnicalSettings {
+  USER = 'user',
+  CRYPTO = 'crypto'
+}
+
+export interface Setting extends CreatedUpdatedProps {
   id?: string;
-  identifier: TenantComponents;
+  identifier: TenantComponents | TechnicalSettings;
   sensitiveData?: string[];
+  backupSensitiveData?: Record<string, unknown>;
   category?: 'business' | 'technical';
 }
 
@@ -21,16 +27,33 @@ export interface SettingLink {
 }
 
 export interface SettingDBContent {
-  type: RoamingSettingsType | AnalyticsSettingsType | RefundSettingsType | PricingSettingsType | BillingSettingsType | SmartChargingSettingsType | AssetSettingsType | SmartChargingContentType;
+  type:
+  RoamingSettingsType
+  | AnalyticsSettingsType
+  | RefundSettingsType
+  | PricingSettingsType
+  | BillingSettingsType
+  | SmartChargingSettingsType
+  | AssetSettingsType
+  | SmartChargingContentType
+  | CryptoSettingsType
+  | UserSettingsType
+  | CarConnectorSettingsType;
   ocpi?: OcpiSetting;
+  oicp?: OicpSetting;
+  // pricing?: PricingSetting;  //TODO - reorg pricing similar to billing
   simple?: SimplePricingSetting;
   convergentCharging?: ConvergentChargingPricingSetting;
+  billing?: BillingSetting;
   stripe?: StripeBillingSetting;
   sac?: SacAnalyticsSetting;
   links?: SettingLink[];
   concur?: ConcurRefundSetting;
   sapSmartCharging?: SapSmartChargingSetting;
   asset?: AssetSetting;
+  carConnector?: CarConnectorSetting;
+  crypto?: CryptoSetting;
+  user?: UserSetting;
 }
 
 export enum PricingSettingsType {
@@ -68,13 +91,15 @@ export interface ConvergentChargingPricingSetting extends PricingSetting {
 }
 
 export enum RoamingSettingsType {
-  GIREVE = 'gireve'
+  OCPI = 'ocpi',
+  OICP = 'oicp',
 }
 
 export interface RoamingSettings extends Setting {
-  identifier: TenantComponents.OCPI;
+  identifier: TenantComponents.OCPI | TenantComponents.OICP;
   type: RoamingSettingsType;
   ocpi?: OcpiSetting;
+  oicp?: OicpSetting;
 }
 
 export interface OcpiSetting {
@@ -84,12 +109,41 @@ export interface OcpiSetting {
   businessDetails: OcpiBusinessDetails;
 }
 
-export interface OcpiIdentifier {
+export interface OicpSetting {
+  cpo: OicpIdentifier;
+  emsp: OicpIdentifier;
+  currency: string;
+  businessDetails: OicpBusinessDetails;
+}
+
+export interface RoamingIdentifier {
   countryCode: string;
   partyID: string;
 }
 
+export type OcpiIdentifier = RoamingIdentifier;
+
+// Should be renamed. Certificate and Key are bundled with OperatorID / ProviderID at this moment.
+// Because the roles CPO and EMSP probably need different certificates to call the Hubject Backend
+export interface OicpIdentifier extends RoamingIdentifier {
+  key?: string;
+  cert?: string;
+}
+
 export interface OcpiBusinessDetails {
+  name: string;
+  website: string;
+  logo?: {
+    url: string;
+    thumbnail: string;
+    category: string;
+    type: string;
+    width: string;
+    height: string;
+  };
+}
+
+export interface OicpBusinessDetails {
   name: string;
   website: string;
   logo?: {
@@ -140,6 +194,9 @@ export interface SapSmartChargingSetting extends SmartChargingSetting {
   optimizerUrl: string;
   user: string;
   password: string;
+  stickyLimitation: boolean;
+  limitBufferDC: number;
+  limitBufferAC: number;
 }
 
 export enum RefundSettingsType {
@@ -172,27 +229,25 @@ export enum BillingSettingsType {
   STRIPE = 'stripe'
 }
 
-export interface BillingSettings extends Setting{
+export interface BillingSettings extends Setting {
   identifier: TenantComponents.BILLING;
   type: BillingSettingsType;
+  billing: BillingSetting;
   stripe?: StripeBillingSetting;
 }
 
 export interface BillingSetting {
+  isTransactionBillingActivated: boolean;
+  immediateBillingAllowed: boolean;
+  periodicBillingAllowed: boolean;
+  taxID: string;
   usersLastSynchronizedOn?: Date;
-  invoicesLastSynchronizedOn?: Date;
 }
 
-export interface StripeBillingSetting extends BillingSetting {
+export interface StripeBillingSetting {
   url: string;
   secretKey: string;
   publicKey: string;
-  noCardAllowed: boolean;
-  immediateBillingAllowed: boolean;
-  periodicBillingAllowed: boolean;
-  advanceBillingAllowed: boolean;
-  currency: string;
-  taxID: string;
 }
 
 export enum BillingContentType {
@@ -220,11 +275,15 @@ export interface AssetConnectionSetting {
   url: string;
   timestamp: Date;
   type: AssetConnectionType;
-  connection?: AssetSchneiderConnectionType;
+  schneiderConnection?: AssetSchneiderConnectionType;
+  greencomConnection?: AssetGreencomConnectionType;
+  iothinkConnection?: AssetIothinkConnectionType;
 }
 
 export enum AssetConnectionType {
   SCHNEIDER = 'schneider',
+  GREENCOM = 'greencom',
+  IOTHINK = 'iothink'
 }
 
 export interface AssetUserPasswordConnectionType {
@@ -232,6 +291,88 @@ export interface AssetUserPasswordConnectionType {
   password: string;
 }
 
+export interface AssetGreencomConnectionType {
+  clientId: string;
+  clientSecret: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface AssetSchneiderConnectionType extends AssetUserPasswordConnectionType {
+}
+
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface AssetIothinkConnectionType extends AssetUserPasswordConnectionType {
+}
+
+export enum CarConnectorSettingsType {
+  CAR_CONNECTOR = 'carConnector',
+}
+
+export interface CarConnectorSettings extends Setting {
+  identifier: TenantComponents.CAR_CONNECTOR;
+  type: CarConnectorSettingsType;
+  carConnector?: CarConnectorSetting;
+}
+
+export interface CarConnectorSetting {
+  connections: CarConnectorConnectionSetting[];
+}
+
+export interface CarConnectorConnectionSetting {
+  id: string;
+  name: string;
+  description: string;
+  timestamp: Date;
+  type: CarConnectorConnectionType;
+  mercedesConnection?: CarConnectorMercedesConnectionType;
+}
+
+export enum CarConnectorConnectionType {
+  NONE = '',
+  MERCEDES = 'mercedes',
+}
+
+export interface CarConnectorMercedesConnectionType {
+  authenticationUrl: string;
+  apiUrl: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+export enum CryptoSettingsType {
+  CRYPTO = 'crypto'
+}
+
+export interface CryptoSettings extends Setting {
+  identifier: TechnicalSettings.CRYPTO;
+  type: CryptoSettingsType;
+  crypto: CryptoSetting;
+}
+
+export interface CryptoKeyProperties {
+  blockCypher: string;
+  blockSize: number;
+  operationMode: string;
+}
+
+export interface CryptoSetting {
+  key: string;
+  keyProperties: CryptoKeyProperties;
+  formerKey?: string;
+  formerKeyProperties?: CryptoKeyProperties;
+  migrationToBeDone?: boolean;
+}
+
+export enum UserSettingsType {
+  USER = 'user',
+}
+
+export interface UserSettings extends Setting {
+  identifier: TechnicalSettings.USER;
+  type: UserSettingsType;
+  user?: UserSetting;
+}
+
+export interface UserSetting {
+  autoActivateAccountAfterValidation: boolean;
 }

@@ -5,11 +5,13 @@ import ChargingStationContext from './context/ChargingStationContext';
 import ContextDefinition from './context/ContextDefinition';
 import ContextProvider from './context/ContextProvider';
 import Factory from '../factories/Factory';
-import { ServerAction } from '../../src/types/Server';
+import { HTTPError } from '../../src/types/HTTPError';
+import { ServerRoute } from '../../src/types/Server';
 import SiteContext from './context/SiteContext';
-import Tag from '../types/Tag';
+import { StatusCodes } from 'http-status-codes';
+import Tag from '../../src/types/Tag';
 import TenantContext from './context/TenantContext';
-import User from '../types/User';
+import User from '../../src/types/User';
 import chaiSubset from 'chai-subset';
 import moment from 'moment';
 import responseHelper from '../helpers/responseHelper';
@@ -66,7 +68,7 @@ describe('User tests', function() {
       testData.chargingStationContext = testData.siteAreaContext.getChargingStationContext(ContextDefinition.CHARGING_STATION_CONTEXTS.ASSIGNED_OCPP16);
     });
 
-    after(async () => {
+    after(() => {
       // Delete any created user
       testData.createdUsers.forEach(async (user) => {
         await testData.centralUserService.deleteEntity(
@@ -105,12 +107,12 @@ describe('User tests', function() {
           // Send
           const response = await testData.userService._baseApi.send({
             method: 'GET',
-            url: '/v1/auth/' + ServerAction.REST_END_USER_LICENSE_AGREEMENT_CHECK + `?Email=${testData.userContext.email}&Tenant=${testData.tenantContext.getTenant().subdomain}`,
+            url: '/v1/auth/' + ServerRoute.REST_END_USER_LICENSE_AGREEMENT_CHECK + `?Email=${testData.userContext.email}&Tenant=${testData.tenantContext.getTenant().subdomain}`,
             headers: {
               'Content-Type': 'application/json'
             }
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           expect(response.data).not.null;
           expect(response.data).to.have.property('eulaAccepted');
           expect(response.data.eulaAccepted).to.eql(true);
@@ -166,29 +168,14 @@ describe('User tests', function() {
         it('Should be able to create a tag for user', async () => {
           testData.newTag = Factory.tag.build({ userID: testData.newUser.id });
           const response = await testData.userService.userApi.createTag(testData.newTag);
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.CREATED);
           testData.createdTags.push(testData.newTag);
-        });
-
-        it('Should not be able to delete a badge that has already been used', async () => {
-          const connectorId = 1;
-          const tagId = testData.newTag.id;
-          const meterStart = 180;
-          const startDate = moment();
-          const response = await testData.chargingStationContext.startTransaction(
-            connectorId, tagId, meterStart, startDate.toDate());
-          // eslint-disable-next-line @typescript-eslint/unbound-method
-          expect(response).to.be.transactionValid;
-          const resDelete = await testData.userService.userApi.deleteTag(tagId);
-          expect(resDelete.status).to.equal(575);
-          const tag = (await testData.userService.userApi.readTag(tagId)).data;
-          expect(tag).to.not.be.null;
         });
 
         it('Should be able to deactivate a badge', async () => {
           testData.newTag.active = false;
           const response = await testData.userService.userApi.updateTag(testData.newTag);
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           const tag = (await testData.userService.userApi.readTag(testData.newTag.id)).data;
           expect(tag.active).to.equal(false);
         });
@@ -207,11 +194,11 @@ describe('User tests', function() {
         it('Should be able to delete a badge that has not been used', async () => {
           testData.newTag = Factory.tag.build({ userID: testData.newUser.id });
           let response = await testData.userService.userApi.createTag(testData.newTag);
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.CREATED);
           response = await testData.userService.userApi.deleteTag(testData.newTag.id);
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           response = (await testData.userService.userApi.readTag(testData.newTag.id));
-          expect(response.status).to.equal(550);
+          expect(response.status).to.equal(HTTPError.OBJECT_DOES_NOT_EXIST_ERROR);
         });
 
         it('Should find the updated user by id', async () => {
@@ -253,7 +240,7 @@ describe('User tests', function() {
             limit: 100,
             skip: 0
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           response.data.result.forEach((u) => expect(u.id).to.not.equal(user.id));
 
           await testData.userService.deleteEntity(
@@ -272,7 +259,7 @@ describe('User tests', function() {
             limit: 100,
             skip: 0
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           const found = response.data.result.find((u) => u.id === user.id);
           expect(found).to.not.be.null;
 
@@ -292,7 +279,7 @@ describe('User tests', function() {
             limit: 100,
             skip: 0
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           const found = response.data.result.find((u) => u.id === user.id);
           expect(found).to.not.be.null;
 
@@ -312,7 +299,7 @@ describe('User tests', function() {
             limit: 100,
             skip: 0
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           const found = response.data.result.find((u) => u.id === user.id);
           expect(found).to.not.be.null;
 
@@ -332,7 +319,7 @@ describe('User tests', function() {
             limit: 100,
             skip: 0
           });
-          expect(response.status).to.equal(200);
+          expect(response.status).to.equal(StatusCodes.OK);
           const found = response.data.result.find((u) => u.id === user.id);
           expect(found).to.not.be.null;
 

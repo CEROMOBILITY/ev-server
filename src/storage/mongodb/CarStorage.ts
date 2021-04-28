@@ -1,4 +1,4 @@
-import { Car, CarCatalog, CarCatalogChargeAlternativeTable, CarCatalogChargeOptionTable, CarCatalogConverter, CarMaker } from '../../types/Car';
+import { Car, CarCatalog, CarCatalogChargeAlternativeTable, CarCatalogChargeOptionTable, CarCatalogConverter, CarMaker, CarType } from '../../types/Car';
 import global, { FilterParams, Image } from '../../types/GlobalType';
 
 import Constants from '../../utils/Constants';
@@ -15,8 +15,8 @@ const MODULE_NAME = 'CarStorage';
 
 export default class CarStorage {
   public static async getCarCatalog(id: number = Constants.UNKNOWN_NUMBER_ID,
-    params: { withImage?: boolean; } = {},
-    projectFields?: string[]): Promise<CarCatalog> {
+      params: { withImage?: boolean; } = {},
+      projectFields?: string[]): Promise<CarCatalog> {
     const carCatalogsMDB = await CarStorage.getCarCatalogs({
       carCatalogIDs: [id],
       withImage: params.withImage,
@@ -25,8 +25,8 @@ export default class CarStorage {
   }
 
   public static async getCarCatalogs(
-    params: { search?: string; carCatalogIDs?: number[]; carMaker?: string[], withImage?: boolean; } = {},
-    dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<CarCatalog>> {
+      params: { search?: string; carCatalogIDs?: number[]; carMaker?: string[], withImage?: boolean; } = {},
+      dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<CarCatalog>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogs');
     // Clone before updating the values
@@ -38,13 +38,13 @@ export default class CarStorage {
     // Create Aggregation
     const aggregation = [];
     // Set the filters
-    const filters: any = {};
+    const filters: FilterParams = {};
     if (params.search) {
-      const searchRegex = Utils.escapeSpecialCharsInRegex(params.search);
       filters.$or = [
-        { 'vehicleModel': { $regex: searchRegex, $options: 'i' } },
-        { 'vehicleMake': { $regex: searchRegex, $options: 'i' } },
-        { 'vehicleModelVersion': { $regex: searchRegex, $options: 'i' } },
+        { '_id': Utils.convertToInt(params.search) },
+        { 'vehicleModel': { $regex: params.search, $options: 'i' } },
+        { 'vehicleMake': { $regex: params.search, $options: 'i' } },
+        { 'vehicleModelVersion': { $regex: params.search, $options: 'i' } },
       ];
     }
     // Limit on Car for Basic Users
@@ -78,7 +78,7 @@ export default class CarStorage {
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
       // Return only the count
-      Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogs', uniqueTimerID, carCatalogsCountMDB);
+      await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogs', uniqueTimerID, carCatalogsCountMDB);
       return {
         count: (carCatalogsCountMDB.length > 0 ? carCatalogsCountMDB[0].count : 0),
         result: []
@@ -106,12 +106,17 @@ export default class CarStorage {
       aggregation.push({
         $addFields: {
           image: {
-            $concat: [
-              `${Utils.buildRestServerURL()}/client/util/CarCatalogImage?ID=`,
-              { $toString: '$_id' },
-              '&LastChangedOn=',
-              { $toString: '$lastChangedOn' }
-            ]
+            $cond: {
+              if: { $gt: ['$image', null] }, then: {
+                $concat: [
+                  `${Utils.buildRestServerURL()}/client/util/CarCatalogImage?ID=`,
+                  { $toString: '$_id' },
+                  '&LastChangedOn=',
+                  { $toString: '$lastChangedOn' }
+                ]
+              }, else: null
+            }
+
           }
         }
       });
@@ -129,7 +134,7 @@ export default class CarStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogs', uniqueTimerID, carCatalogs);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogs', uniqueTimerID, carCatalogs);
     // Ok
     return {
       count: (carCatalogsCountMDB.length > 0 ?
@@ -138,7 +143,7 @@ export default class CarStorage {
     };
   }
 
-  public static async saveCarCatalog(carToSave: CarCatalog, saveImage = false): Promise<number> {
+  public static async saveCarCatalog(carToSave: CarCatalog): Promise<number> {
     // Debug
     const uniqueTimerID = Logging.traceStart(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarCatalog');
     // Build Request
@@ -291,7 +296,7 @@ export default class CarStorage {
       euroNCAPChild: Utils.convertToInt(carToSave.euroNCAPChild),
       euroNCAPVRU: Utils.convertToInt(carToSave.euroNCAPVRU),
       euroNCAPSA: Utils.convertToInt(carToSave.euroNCAPSA),
-      relatedVehicleIDSuccesor: Utils.convertToInt(carToSave.relatedVehicleIDSuccesor),
+      relatedVehicleIDSuccessor: Utils.convertToInt(carToSave.relatedVehicleIDSuccessor),
       eVDBDetailURL: carToSave.eVDBDetailURL,
       videos: carToSave.videos,
       hash: carToSave.hash,
@@ -307,31 +312,33 @@ export default class CarStorage {
       carMDB,
       { upsert: true }
     );
-    if (saveImage) {
-      await CarStorage.saveCarImages(carToSave.id, carToSave.images);
-    }
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarCatalog', uniqueTimerID, carMDB);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarCatalog', uniqueTimerID, carMDB);
     return carToSave.id;
   }
 
-  public static async saveCarImages(carID: number, carImagesToSave: string[]): Promise<void> {
+  public static async saveCarImage(carID: number, carImageToSave: string): Promise<void> {
     // Debug
-    const uniqueTimerID = Logging.traceStart(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarImages');
-    // Delete old images
+    const uniqueTimerID = Logging.traceStart(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarImage');
+    // Save new image
+    await global.database.getCollection<any>(Constants.DEFAULT_TENANT, 'carcatalogimages').findOneAndReplace(
+      { _id: Cypher.hash(`${carImageToSave}~${carID}`), },
+      { carID: Utils.convertToInt(carID), image: carImageToSave },
+      { upsert: true }
+    );
+    // Debug
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarImage', uniqueTimerID, carImageToSave);
+  }
+
+  public static async deleteCarImages(carID: number): Promise<void> {
+    // Debug
+    const uniqueTimerID = Logging.traceStart(Constants.DEFAULT_TENANT, MODULE_NAME, 'deleteCarImages');
+    // Delete car catalogs images
     await global.database.getCollection<any>(Constants.DEFAULT_TENANT, 'carcatalogimages').deleteMany(
       { carID: Utils.convertToInt(carID) }
     );
-    // Save new images
-    for (const carImageToSave of carImagesToSave) {
-      await global.database.getCollection<any>(Constants.DEFAULT_TENANT, 'carcatalogimages').findOneAndReplace(
-        { _id: Cypher.hash(`${carImageToSave}~${carID}`), },
-        { carID: Utils.convertToInt(carID), image: carImageToSave },
-        { upsert: true }
-      );
-    }
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'saveCarImages', uniqueTimerID, carImagesToSave);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'deleteCarImages', uniqueTimerID, carID);
   }
 
   public static async getCarCatalogImage(id: number): Promise<{ id: number; image: string }> {
@@ -341,7 +348,7 @@ export default class CarStorage {
     const carCatalogImageMDB = await global.database.getCollection<{ _id: number; image: string }>(Constants.DEFAULT_TENANT, 'carcatalogs')
       .findOne({ _id: id });
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImage', uniqueTimerID, carCatalogImageMDB);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImage', uniqueTimerID, carCatalogImageMDB);
     return {
       id: id,
       image: carCatalogImageMDB ? carCatalogImageMDB.image : null
@@ -377,7 +384,7 @@ export default class CarStorage {
       .toArray();
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
-      Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImages', uniqueTimerID, carCatalogImagesCountMDB);
+      await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImages', uniqueTimerID, carCatalogImagesCountMDB);
       return {
         count: (carCatalogImagesCountMDB.length > 0 ? carCatalogImagesCountMDB[0].count : 0),
         result: []
@@ -404,7 +411,7 @@ export default class CarStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImages', uniqueTimerID, carCatalogImages);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarCatalogImages', uniqueTimerID, carCatalogImages);
     return {
       count: (carCatalogImagesCountMDB.length > 0 ?
         (carCatalogImagesCountMDB[0].count === Constants.DB_RECORD_COUNT_CEIL ? -1 : carCatalogImagesCountMDB[0].count) : 0),
@@ -419,7 +426,7 @@ export default class CarStorage {
     const filters: ({ $or?: any[] } | undefined) = {};
     if (params.search) {
       filters.$or = [
-        { 'vehicleMake': { $regex: Utils.escapeSpecialCharsInRegex(params.search), $options: 'i' } },
+        { 'vehicleMake': { $regex: params.search, $options: 'i' } },
       ];
     }
     // Create Aggregation
@@ -457,13 +464,14 @@ export default class CarStorage {
     });
     // Project
     DatabaseUtils.projectFields(aggregation, projectFields);
+    // Execute
     const carMakersMDB = await global.database.getCollection<any>(Constants.DEFAULT_TENANT, 'carcatalogs')
       .aggregate(aggregation, {
         allowDiskUse: true
       })
       .toArray();
     // Debug
-    Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarMakers', uniqueTimerID, carMakersMDB);
+    await Logging.traceEnd(Constants.DEFAULT_TENANT, MODULE_NAME, 'getCarMakers', uniqueTimerID, carMakersMDB);
     return {
       count: carMakersMDB.length,
       result: carMakersMDB
@@ -498,7 +506,7 @@ export default class CarStorage {
       { upsert: true, returnOriginal: false }
     );
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveCar', uniqueTimerID, carMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveCar', uniqueTimerID, carMDB);
     return carMDB._id.toHexString();
   }
 
@@ -527,7 +535,7 @@ export default class CarStorage {
       { upsert: true, returnOriginal: false }
     );
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveCarUser', uniqueTimerID, carUserMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveCarUser', uniqueTimerID, carUserMDB);
     return carUserMDB._id;
   }
 
@@ -553,24 +561,28 @@ export default class CarStorage {
         carUsersMDB.push(carUserMDB);
       }
       // Execute
-      await global.database.getCollection<any>(tenantID, 'carusers').insertMany(carUsersMDB);
+      await global.database.getCollection<any>(tenantID, 'carusers').insertMany(
+        carUsersMDB,
+        { ordered: false }
+      );
     }
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'insertCarUsers', uniqueTimerID, carUsersMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'insertCarUsers', uniqueTimerID, carUsersMDB);
   }
 
   public static async getCar(tenantID: string, id: string = Constants.UNKNOWN_STRING_ID,
-    params: { withUsers?: boolean, userIDs?: string[]; } = {}, projectFields?: string[]): Promise<Car> {
+      params: { withUsers?: boolean, userIDs?: string[]; type?: CarType } = {}, projectFields?: string[]): Promise<Car> {
     const carsMDB = await CarStorage.getCars(tenantID, {
       carIDs: [id],
       withUsers: params.withUsers,
       userIDs: params.userIDs,
+      type: params.type
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
     return carsMDB.count === 1 ? carsMDB.result[0] : null;
   }
 
   public static async getDefaultUserCar(tenantID: string, userID: string,
-    params: { } = {}, projectFields?: string[]): Promise<Car> {
+      params: {} = {}, projectFields?: string[]): Promise<Car> {
     const carMDB = await CarStorage.getCars(tenantID, {
       userIDs: [userID],
       defaultCar: true,
@@ -579,7 +591,7 @@ export default class CarStorage {
   }
 
   public static async getFirstAvailableUserCar(tenantID: string, userID: string,
-    params: { } = {}, projectFields?: string[]): Promise<Car> {
+      params: {} = {}, projectFields?: string[]): Promise<Car> {
     const carMDB = await CarStorage.getCars(tenantID, {
       userIDs: [userID],
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
@@ -587,20 +599,23 @@ export default class CarStorage {
   }
 
   public static async getCarByVinLicensePlate(tenantID: string,
-    licensePlate: string = Constants.UNKNOWN_STRING_ID, vin: string = Constants.UNKNOWN_STRING_ID,
-    params: { withUsers?: boolean, userIDs?: string[]; } = {}, projectFields?: string[]): Promise<Car> {
+      licensePlate: string = Constants.UNKNOWN_STRING_ID, vin: string = Constants.UNKNOWN_STRING_ID,
+      params: { withUsers?: boolean, userIDs?: string[]; } = {}, projectFields?: string[]): Promise<Car> {
     const carsMDB = await CarStorage.getCars(tenantID, {
       licensePlate: licensePlate,
       vin: vin,
-      ...params
+      withUsers: params.withUsers,
+      userIDs: params.userIDs,
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
     return carsMDB.count === 1 ? carsMDB.result[0] : null;
   }
 
   public static async getCars(tenantID: string,
-    params: { search?: string; userIDs?: string[]; carIDs?: string[]; licensePlate?: string; vin?: string;
-      withUsers?: boolean; defaultCar?: boolean; carMakers?: string[] } = {},
-    dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Car>> {
+      params: {
+        search?: string; userIDs?: string[]; carIDs?: string[]; licensePlate?: string; vin?: string;
+        withUsers?: boolean; defaultCar?: boolean; carMakers?: string[], type?: CarType;
+      } = {},
+      dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Car>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getCars');
     // Clone before updating the values
@@ -615,10 +630,9 @@ export default class CarStorage {
     const filters: FilterParams = {};
     // Search
     if (params.search) {
-      const searchRegex = Utils.escapeSpecialCharsInRegex(params.search);
       filters.$or = [
-        { 'vin': { $regex: searchRegex, $options: 'i' } },
-        { 'licensePlate': { $regex: searchRegex, $options: 'i' } },
+        { 'vin': { $regex: params.search, $options: 'i' } },
+        { 'licensePlate': { $regex: params.search, $options: 'i' } },
       ];
     }
     if (params.licensePlate) {
@@ -626,6 +640,9 @@ export default class CarStorage {
     }
     if (params.vin) {
       filters.vin = params.vin;
+    }
+    if (params.type) {
+      filters.type = params.type;
     }
     // Car
     if (!Utils.isEmptyArray(params.carIDs)) {
@@ -671,7 +688,7 @@ export default class CarStorage {
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
       // Return only the count
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getCars', uniqueTimerID, carsCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getCars', uniqueTimerID, carsCountMDB);
       return {
         count: (carsCountMDB.length > 0 ? carsCountMDB[0].count : 0),
         result: []
@@ -703,12 +720,17 @@ export default class CarStorage {
     aggregation.push({
       $addFields: {
         'carCatalog.image': {
-          $concat: [
-            `${Utils.buildRestServerURL()}/client/util/CarCatalogImage?ID=`,
-            '$carCatalog.id',
-            '&LastChangedOn=',
-            { $toString: '$carCatalog.lastChangedOn' }
-          ]
+          $cond: {
+            if: { $gt: ['$carCatalog.image', null] }, then: {
+              $concat: [
+                `${Utils.buildRestServerURL()}/client/util/CarCatalogImage?ID=`,
+                '$carCatalog.id',
+                '&LastChangedOn=',
+                { $toString: '$carCatalog.lastChangedOn' }
+              ]
+            }, else: null
+          }
+
         }
       }
     });
@@ -740,7 +762,7 @@ export default class CarStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getCars', uniqueTimerID, cars);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getCars', uniqueTimerID, cars);
     return {
       count: (carsCountMDB.length > 0 ?
         (carsCountMDB[0].count === Constants.DB_RECORD_COUNT_CEIL ? -1 : carsCountMDB[0].count) : 0),
@@ -759,7 +781,7 @@ export default class CarStorage {
       {
         $set: { default: false }
       });
-    Logging.traceEnd(tenantID, MODULE_NAME, 'clearCarUserDefault', uniqueTimerID, { userID });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'clearCarUserDefault', uniqueTimerID, { userID });
   }
 
   public static async clearCarUserOwner(tenantID: string, carID: string): Promise<void> {
@@ -773,12 +795,12 @@ export default class CarStorage {
       {
         $set: { owner: false }
       });
-    Logging.traceEnd(tenantID, MODULE_NAME, 'clearCarUserOwner', uniqueTimerID, { carID });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'clearCarUserOwner', uniqueTimerID, { carID });
   }
 
   public static async getCarUserByCarUser(tenantID: string,
-    carID: string = Constants.UNKNOWN_STRING_ID, userID: string = Constants.UNKNOWN_STRING_ID,
-    projectFields?: string[]): Promise<UserCar> {
+      carID: string = Constants.UNKNOWN_STRING_ID, userID: string = Constants.UNKNOWN_STRING_ID,
+      projectFields?: string[]): Promise<UserCar> {
     const carUsersMDB = await CarStorage.getCarUsers(tenantID, {
       carIDs: [carID],
       userIDs: [userID]
@@ -787,7 +809,7 @@ export default class CarStorage {
   }
 
   public static async getCarUser(tenantID: string, carUserID: string = Constants.UNKNOWN_STRING_ID,
-    projectFields?: string[]): Promise<UserCar> {
+      projectFields?: string[]): Promise<UserCar> {
     const carUsersMDB = await CarStorage.getCarUsers(tenantID, {
       carUsersIDs: [carUserID]
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
@@ -801,17 +823,18 @@ export default class CarStorage {
     await global.database.getCollection(tenantID, 'carusers')
       .findOneAndDelete({ '_id': id });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUser', uniqueTimerID, { id });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUser', uniqueTimerID, { id });
   }
 
-  public static async deleteCarUsersByCarID(tenantID: string, carID: string): Promise<void> {
+  public static async deleteCarUsersByCarID(tenantID: string, carID: string): Promise<number> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'deleteCarUserByCarID');
     // Delete singular site area
-    await global.database.getCollection(tenantID, 'carusers')
+    const result = await global.database.getCollection(tenantID, 'carusers')
       .deleteMany({ 'carID': Utils.convertToObjectID(carID) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUserByCarID', uniqueTimerID, { carID });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUserByCarID', uniqueTimerID, { carID });
+    return result.deletedCount;
   }
 
   public static async deleteCar(tenantID: string, carID: string): Promise<void> {
@@ -821,7 +844,7 @@ export default class CarStorage {
     await global.database.getCollection(tenantID, 'cars')
       .deleteOne({ '_id': Utils.convertToObjectID(carID) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCar', uniqueTimerID, { carID });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCar', uniqueTimerID, { carID });
   }
 
   public static async deleteCarUsers(tenantID: string, ids: string[]): Promise<void> {
@@ -831,12 +854,12 @@ export default class CarStorage {
     await global.database.getCollection(tenantID, 'carusers')
       .deleteMany({ '_id': { $in: ids } });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUserByCarID', uniqueTimerID, { ids });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteCarUserByCarID', uniqueTimerID, { ids });
   }
 
   public static async getCarUsers(tenantID: string,
-    params: { search?: string; carUsersIDs?: string[]; userIDs?: string[]; carIDs?: string[]; } = {},
-    dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<UserCar>> {
+      params: { search?: string; carUsersIDs?: string[]; userIDs?: string[]; carIDs?: string[]; } = {},
+      dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<UserCar>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getCarUsers');
     // Clone before updating the values
@@ -879,7 +902,7 @@ export default class CarStorage {
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
       // Return only the count
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getCarUsers', uniqueTimerID, carUsersCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getCarUsers', uniqueTimerID, carUsersCountMDB);
       return {
         count: (carUsersCountMDB.length > 0 ? carUsersCountMDB[0].count : 0),
         result: []
@@ -922,7 +945,7 @@ export default class CarStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getCarUsers', uniqueTimerID, carUsers);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getCarUsers', uniqueTimerID, carUsers);
     return {
       count: (carUsersCountMDB.length > 0 ?
         (carUsersCountMDB[0].count === Constants.DB_RECORD_COUNT_CEIL ? -1 : carUsersCountMDB[0].count) : 0),

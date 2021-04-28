@@ -1,6 +1,9 @@
+import User, { UserStatus } from './User';
+
 import { BillingInvoice } from './Billing';
+import ChargingStation from './ChargingStation';
 import NotificationTask from '../notification/NotificationTask';
-import User from './User';
+import { SMTPError } from 'emailjs';
 
 export default interface UserNotifications {
   sendSessionStarted: boolean;
@@ -13,7 +16,8 @@ export default interface UserNotifications {
   sendChargingStationStatusError: boolean;
   sendChargingStationRegistered: boolean;
   sendOcpiPatchStatusError: boolean;
-  sendSmtpAuthError: boolean;
+  sendOicpPatchStatusError: boolean;
+  sendSmtpError: boolean;
   sendUserAccountInactivity: boolean;
   sendPreparingSessionNotStarted: boolean;
   sendOfflineChargingStations: boolean;
@@ -23,6 +27,8 @@ export default interface UserNotifications {
   sendComputeAndApplyChargingProfilesFailed: boolean;
   sendSessionNotStarted: boolean;
   sendEndUserErrorNotification: boolean;
+  sendAccountVerificationNotification: boolean;
+  sendAdminAccountVerificationNotification: boolean;
 }
 
 export type UserNotificationKeys =
@@ -35,7 +41,8 @@ export type UserNotificationKeys =
  'sendChargingStationStatusError' |
  'sendChargingStationRegistered' |
  'sendOcpiPatchStatusError' |
- 'sendSmtpAuthError' |
+ 'sendOicpPatchStatusError' |
+ 'sendSmtpError' |
  'sendUserAccountInactivity' |
  'sendPreparingSessionNotStarted' |
  'sendOfflineChargingStations' |
@@ -43,7 +50,9 @@ export type UserNotificationKeys =
  'sendBillingNewInvoice' |
  'sendSessionNotStarted' |
  'sendCarCatalogSynchronizationFailed' |
- 'sendEndUserErrorNotification'
+ 'sendEndUserErrorNotification' |
+ 'sendAccountVerificationNotification' |
+ 'sendAdminAccountVerificationNotification'
 ;
 
 export enum UserNotificationType {
@@ -56,7 +65,9 @@ export enum UserNotificationType {
   CHARGING_STATION_STATUS_ERROR = 'ChargingStationStatusError',
   CHARGING_STATION_REGISTERED = 'ChargingStationRegistered',
   OCPI_PATCH_STATUS_ERROR = 'OcpiPatchStatusError',
-  SMTP_AUTH_ERROR = 'SmtpAuthError',
+  OICP_PATCH_STATUS_ERROR = 'OicpPatchStatusError',
+  OICP_PATCH_EVSE_ERROR = 'OicpPatchEvseError',
+  SMTP_ERROR = 'SmtpError',
   PREPARING_SESSION_NOT_STARTED = 'PreparingSessionNotStarted',
   USER_ACCOUNT_INACTIVITY = 'UserAccountInactivity',
   OFFLINE_CHARGING_STATION = 'OfflineChargingStation',
@@ -66,7 +77,8 @@ export enum UserNotificationType {
   CAR_CATALOG_SYNCHRONIZATION_FAILED = 'CarCatalogSynchronizationFailed',
   CHECK_AND_APPLY_SMART_CHARGING_FAILED = 'ComputeAndApplyChargingProfilesFailed',
   SESSION_NOT_STARTED_AFTER_AUTHORIZE = 'SessionNotStartedAfterAuthorize',
-  END_USER_ERROR_NOTIFICATION = 'EndUserErrorNotification'
+  END_USER_ERROR_NOTIFICATION = 'EndUserErrorNotification',
+  ACCOUNT_VERIFICATION_NOTIFICATION = 'AccountVerificationNotification'
 }
 
 export enum NotificationSeverity {
@@ -75,7 +87,18 @@ export enum NotificationSeverity {
   ERROR = '#ee0000'
 }
 
+export interface EmailNotificationMessage {
+  to: string;
+  cc?: string;
+  bccNeeded?: boolean;
+  bcc?: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
 interface BaseNotification {
+  tenantLogoURL?: string;
 }
 
 export interface EndOfChargeNotification extends BaseNotification {
@@ -188,7 +211,16 @@ export interface TransactionStartedNotification extends BaseNotification {
   evseDashboardChargingStationURL: string;
 }
 
-export interface SmtpAuthErrorNotification extends BaseNotification {
+export interface SmtpErrorNotification extends BaseNotification {
+  SMTPError: SMTPError;
+  evseDashboardURL: string;
+}
+
+export interface OICPPatchChargingStationsErrorNotification extends BaseNotification {
+  evseDashboardURL: string;
+}
+
+export interface OICPPatchChargingStationsStatusesErrorNotification extends BaseNotification {
   evseDashboardURL: string;
 }
 
@@ -282,3 +314,21 @@ export interface EndUserErrorNotification extends BaseNotification {
   evseDashboardURL: string;
 }
 
+export interface AccountVerificationNotification extends BaseNotification {
+  user: User;
+  userStatus: UserStatus;
+  evseDashboardURL: string;
+}
+
+export interface NotifySessionNotStarted extends BaseNotification {
+  chargingStation: ChargingStation;
+  tagID: string;
+  authDate: Date;
+  user: User;
+}
+
+export interface AdminAccountVerificationNotification extends BaseNotification {
+  user: User;
+  evseDashboardURL: string;
+  evseUserToVerifyURL: string;
+}

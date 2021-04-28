@@ -22,12 +22,12 @@ export default class NotificationService {
     const filteredRequest = NotificationSecurity.filterNotificationsRequest(req.query);
     // Check User
     let userProject: string[] = [];
-    if (Authorizations.canListUsers(req.user)) {
+    if (await Authorizations.canListUsers(req.user)) {
       userProject = [ 'userID', 'user.id', 'user.name', 'user.firstName', 'user.email', 'data' ];
     }
     // Check Charging Station
     let chargingStationProject: string[] = [];
-    if (Authorizations.canListChargingStations(req.user)) {
+    if (await Authorizations.canListChargingStations(req.user)) {
       chargingStationProject = [ 'chargeBoxID' ];
     }
     // Get the Notification
@@ -38,7 +38,7 @@ export default class NotificationService {
     }, {
       limit: filteredRequest.Limit,
       skip: filteredRequest.Skip,
-      sort: filteredRequest.Sort
+      sort: filteredRequest.SortFields
     },
     [
       'id', 'timestamp', 'channel', 'sourceId', 'sourceDescr', 'chargeBoxID',
@@ -51,9 +51,9 @@ export default class NotificationService {
 
   static async handleEndUserReportError(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Check auth
-    if (!Authorizations.canEndUserReportError(req.user)) {
+    if (!await Authorizations.canEndUserReportError(req.user)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.CREATE, entity: Entity.NOTIFICATION,
         module: MODULE_NAME, method: 'handleEndUserReportError'
@@ -65,7 +65,7 @@ export default class NotificationService {
     UtilsService.checkIfEndUserErrorNotificationValid(filteredRequest, req);
     // Get the User
     const user = await UserStorage.getUser(req.user.tenantID, req.user.id);
-    UtilsService.assertObjectExists(action, user, `User '${req.user.id}' does not exist`,
+    UtilsService.assertObjectExists(action, user, `User ID '${req.user.id}' does not exist`,
       MODULE_NAME, 'handleEndUserReportError', req.user);
     // Save mobile number
     if (filteredRequest.mobile && (user.mobile !== filteredRequest.mobile)) {

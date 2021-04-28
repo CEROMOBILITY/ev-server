@@ -1,5 +1,5 @@
 import { Factory } from 'rosie';
-import UserNotifications from '../types/UserNotifications';
+import UserNotifications from '../../src/types/UserNotifications';
 import faker from 'faker';
 
 const userFactory = Factory.define('user')
@@ -24,7 +24,8 @@ const userFactory = Factory.define('user')
     sendChargingStationStatusError: false,
     sendChargingStationRegistered: false,
     sendOcpiPatchStatusError: false,
-    sendSmtpAuthError: false,
+    sendOicpPatchStatusError: false,
+    sendSmtpError: false,
     sendUserAccountInactivity: false,
     sendPreparingSessionNotStarted: false,
     sendOfflineChargingStations: false,
@@ -33,7 +34,9 @@ const userFactory = Factory.define('user')
     sendCarCatalogSynchronizationFailed: false,
     sendEndUserErrorNotification: false,
     sendComputeAndApplyChargingProfilesFailed: false,
-    sendBillingNewInvoice: false
+    sendBillingNewInvoice: false,
+    sendAccountVerificationNotification: false,
+    sendAdminAccountVerificationNotification: false
   }))
   .attr('role', 'B')
   .attr('status', 'A')

@@ -3,6 +3,7 @@ import chai, { expect } from 'chai';
 
 import CentralServerService from './client/CentralServerService';
 import ContextDefinition from './context/ContextDefinition';
+import { StatusCodes } from 'http-status-codes';
 import TenantComponents from '../../src/types/TenantComponents';
 import TestConstants from './client/utils/TestConstants';
 import chaiSubset from 'chai-subset';
@@ -71,7 +72,7 @@ describe('Tenant Settings test', function() {
     };
     const res = await testData.superAdminCentralService.updateEntity(
       testData.centralService.tenantApi, testData.data);
-    expect(res.status).to.equal(200);
+    expect(res.status).to.equal(StatusCodes.OK);
   });
 
   describe('Success cases', function() {
@@ -87,7 +88,7 @@ describe('Tenant Settings test', function() {
         email: testData.credentials.email,
         subdomain: ContextDefinition.TENANT_CONTEXTS.TENANT_WITH_NO_COMPONENTS,
         components: {
-          ocpi: { active: true, type: RoamingSettingsType.GIREVE },
+          ocpi: { active: true, type: RoamingSettingsType.OCPI },
           organization: { active: false, type: null },
           pricing: { active: false, type: null },
           refund: { active: false, type: null },
@@ -100,11 +101,11 @@ describe('Tenant Settings test', function() {
       };
       const res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.data.count).to.equal(1);
-      expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.OCPI, RoamingSettingsType.GIREVE);
+      expect(settings.data.count).to.equal(3);
+      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.OCPI, RoamingSettingsType.OCPI);
     });
 
     it('Pricing/Simple : Check that the setting has been created in the tenant after activation', async function() {
@@ -128,12 +129,12 @@ describe('Tenant Settings test', function() {
       };
       const res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(1);
-      expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(3);
+      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
     });
 
     it('Billing : Check that the setting has been created in the tenant after activation', async function() {
@@ -157,7 +158,7 @@ describe('Tenant Settings test', function() {
       };
       let res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data, false);
-      expect(res.status).to.equal(500);
+      expect(res.status).to.equal(StatusCodes.INTERNAL_SERVER_ERROR);
 
       // Fill in the data
       testData.data = {
@@ -179,13 +180,13 @@ describe('Tenant Settings test', function() {
       };
       res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(2);
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(4);
       expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.BILLING, BillingSettingsType.STRIPE);
-      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
+      expect(settings.data.result[2]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
     });
 
     it('Refund : Check that the setting has been created in the tenant after activation', async function() {
@@ -209,7 +210,7 @@ describe('Tenant Settings test', function() {
       };
       let res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data, false);
-      expect(res.status).to.equal(500);
+      expect(res.status).to.equal(StatusCodes.INTERNAL_SERVER_ERROR);
 
       // Test Refund with Pricing
       testData.data = {
@@ -230,13 +231,13 @@ describe('Tenant Settings test', function() {
         }
       };
       res = await testData.superAdminCentralService.updateEntity(testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(2);
-      expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
-      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.REFUND, RefundSettingsType.CONCUR);
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(4);
+      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.SIMPLE);
+      expect(settings.data.result[2]).to.be.validatedSetting(TenantComponents.REFUND, RefundSettingsType.CONCUR);
     });
 
     it('SmartCharging : Check that the setting has been created in the tenant after activation', async function() {
@@ -260,7 +261,7 @@ describe('Tenant Settings test', function() {
       };
       let res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data, false);
-      expect(res.status).to.equal(500);
+      expect(res.status).to.equal(StatusCodes.INTERNAL_SERVER_ERROR);
       // Test Smart Charging with Pricing
       testData.data = {
         id: testData.credentials.tenantId,
@@ -280,12 +281,12 @@ describe('Tenant Settings test', function() {
         }
       };
       res = await testData.superAdminCentralService.updateEntity(testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(1);
-      expect(settings.data.result[0]).to.be.validatedSetting('smartCharging', 'sapSmartCharging');
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(3);
+      expect(settings.data.result[1]).to.be.validatedSetting('smartCharging', 'sapSmartCharging');
     });
 
     it('Pricing/Convergent : Check that the setting has been created in the tenant after activation', async function() {
@@ -308,12 +309,12 @@ describe('Tenant Settings test', function() {
         }
       };
       const res = await testData.superAdminCentralService.updateEntity(testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(1);
-      expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.CONVERGENT_CHARGING);
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(3);
+      expect(settings.data.result[1]).to.be.validatedSetting(TenantComponents.PRICING, PricingSettingsType.CONVERGENT_CHARGING);
     });
 
     it('Analytics : Check that the setting has been created in the tenant after activation', async function() {
@@ -337,11 +338,11 @@ describe('Tenant Settings test', function() {
         }
       };
       const res = await testData.superAdminCentralService.updateEntity(testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.status).to.equal(200);
-      expect(settings.data.count).to.equal(1);
+      expect(settings.status).to.equal(StatusCodes.OK);
+      expect(settings.data.count).to.equal(3);
       expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.ANALYTICS, AnalyticsSettingsType.SAC);
     });
 
@@ -366,7 +367,7 @@ describe('Tenant Settings test', function() {
       };
       let res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data, false);
-      expect(res.status).to.equal(500);
+      expect(res.status).to.equal(StatusCodes.INTERNAL_SERVER_ERROR);
       // Test Asset with Organization
       testData.data = {
         id: testData.credentials.tenantId,
@@ -387,10 +388,10 @@ describe('Tenant Settings test', function() {
       };
       res = await testData.superAdminCentralService.updateEntity(
         testData.centralService.tenantApi, testData.data);
-      expect(res.status).to.equal(200);
+      expect(res.status).to.equal(StatusCodes.OK);
       testData.connectUser();
       const settings = await testData.centralService.settingApi.readAll({});
-      expect(settings.data.count).to.equal(1);
+      expect(settings.data.count).to.equal(3);
       expect(settings.data.result[0]).to.be.validatedSetting(TenantComponents.ASSET, null);
     });
   });

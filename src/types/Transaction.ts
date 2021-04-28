@@ -6,7 +6,11 @@ import { BillingTransactionData } from './Billing';
 import ChargingStation from '../types/ChargingStation';
 import { OCPICdr } from './ocpi/OCPICdr';
 import { OCPISession } from './ocpi/OCPISession';
+import { OICPChargeDetailRecord } from './oicp/OICPChargeDetailRecord';
+import { OICPSession } from './oicp/OICPSession';
+import { PricingModel } from './Pricing';
 import { RefundTransactionData } from './Refund';
+import Tag from './Tag';
 import User from './User';
 
 export type InactivityStatusLevel =
@@ -40,6 +44,7 @@ export default interface Transaction extends AbstractCurrentConsumption {
   issuer: boolean;
   connectorId: number;
   tagID: string;
+  tag?: Tag;
   userID: string;
   chargeBoxID: string;
   signedData?: string;
@@ -58,6 +63,7 @@ export default interface Transaction extends AbstractCurrentConsumption {
   roundedPrice?: number;
   priceUnit?: string;
   pricingSource?: string;
+  pricingModel?: PricingModel,
   stateOfCharge: number;
   timezone: string;
   currentTimestamp?: Date;
@@ -67,7 +73,6 @@ export default interface Transaction extends AbstractCurrentConsumption {
   currentTotalDurationSecs?: number;
   transactionEndReceived?: boolean;
   currentCumulatedPrice?: number;
-  currentTotalConsumptionWh: number;
   currentSignedData?: string;
   status?: ChargePointStatus;
   numberOfMeterValues: number;
@@ -76,12 +81,21 @@ export default interface Transaction extends AbstractCurrentConsumption {
   billingData?: BillingTransactionData;
   ocpi?: boolean;
   ocpiWithCdr?: boolean;
-  ocpiData?: OcpiData;
+  ocpiData?: TransactionOcpiData;
+  oicpData?: TransactionOicpData;
+  migrationTag?: string;
 }
 
-export interface OcpiData {
+export interface TransactionOcpiData {
   session?: OCPISession;
   cdr?: OCPICdr;
+  sessionCheckedOn?: Date;
+  cdrCheckedOn?: Date;
+}
+
+export interface TransactionOicpData {
+  session?: OICPSession;
+  cdr?: OICPChargeDetailRecord;
   sessionCheckedOn?: Date;
   cdrCheckedOn?: Date;
 }

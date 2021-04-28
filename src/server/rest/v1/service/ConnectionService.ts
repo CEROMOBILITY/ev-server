@@ -32,9 +32,9 @@ export default class ConnectionService {
       });
     }
     // Check auth
-    if (!Authorizations.canReadConnection(req.user, connectionID)) {
+    if (!await Authorizations.canReadConnection(req.user, connectionID)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.READ, entity: Entity.CONNECTION,
         module: MODULE_NAME, method: 'handleGetConnection',
@@ -43,7 +43,7 @@ export default class ConnectionService {
     }
     // Check User
     let userProject: string[] = [];
-    if (Authorizations.canListUsers(req.user)) {
+    if (await Authorizations.canListUsers(req.user)) {
       userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
     }
     // Get it
@@ -57,9 +57,9 @@ export default class ConnectionService {
 
   public static async handleGetConnections(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Check auth
-    if (!Authorizations.canListConnections(req.user)) {
+    if (!await Authorizations.canListConnections(req.user)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.LIST, entity: Entity.CONNECTIONS,
         module: MODULE_NAME, method: 'handleGetConnections'
@@ -69,7 +69,7 @@ export default class ConnectionService {
     const filteredRequest = ConnectionSecurity.filterConnectionsRequest(req.query);
     // Check Users
     let userProject: string[] = [];
-    if (Authorizations.canListUsers(req.user)) {
+    if (await Authorizations.canListUsers(req.user)) {
       userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
     }
     // Get
@@ -81,9 +81,9 @@ export default class ConnectionService {
 
   public static async handleCreateConnection(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Check auth
-    if (!Authorizations.canCreateConnection(req.user)) {
+    if (!await Authorizations.canCreateConnection(req.user)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.CREATE, entity: Entity.CONNECTION,
         module: MODULE_NAME, method: 'handleCreateConnection'

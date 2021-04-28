@@ -1,20 +1,17 @@
+import { BillingSettings, BillingSettingsType } from '../../../src/types/Setting';
+
 import BackendError from '../../../src/exception/BackendError';
 import BillingFactory from '../../../src/integration/billing/BillingFactory';
 import Constants from '../../../src/utils/Constants';
 import ContextDefinition from './ContextDefinition';
 import Cypher from '../../../src/utils/Cypher';
 import SettingStorage from '../../../src/storage/mongodb/SettingStorage';
-import { StripeBillingSetting } from '../../../src/types/Setting';
+import TenantComponents from '../../../src/types/TenantComponents';
 import TenantContext from './TenantContext';
 import User from '../../../src/types/User';
 import config from '../../config';
 
 export default class BillingContext {
-
-  static readonly USERS: any = [
-    ContextDefinition.USER_CONTEXTS.DEFAULT_ADMIN,
-    ContextDefinition.USER_CONTEXTS.BASIC_USER
-  ];
 
   private tenantContext: TenantContext;
 
@@ -22,33 +19,36 @@ export default class BillingContext {
     this.tenantContext = tenantContext;
   }
 
-  private static getBillingSettings(): StripeBillingSetting {
-    return {
-      url: config.get('billing.url'),
-      publicKey: config.get('billing.publicKey'),
-      secretKey: config.get('billing.secretKey'),
-      noCardAllowed: config.get('billing.noCardAllowed'),
-      advanceBillingAllowed: config.get('billing.advanceBillingAllowed'),
-      currency: config.get('billing.currency'),
+  private static getBillingSettings(): BillingSettings {
+    const billingProperties = {
+      isTransactionBillingActivated: config.get('billing.isTransactionBillingActivated'),
       immediateBillingAllowed: config.get('billing.immediateBillingAllowed'),
-      periodicBillingAllowed: config.get('billing.periodicBillingAllowed')
-    } as StripeBillingSetting;
+      periodicBillingAllowed: config.get('billing.periodicBillingAllowed'),
+      taxID: config.get('billing.taxID')
+    };
+    const stripeProperties = {
+      url: config.get('stripe.url'),
+      publicKey: config.get('stripe.publicKey'),
+      secretKey: config.get('stripe.secretKey'),
+    };
+    return {
+      identifier: TenantComponents.BILLING,
+      type: BillingSettingsType.STRIPE,
+      billing: billingProperties,
+      stripe: stripeProperties,
+    };
   }
 
-  public async createTestData() {
-    let skip = false;
+  public async createTestData(): Promise<void> {
     const settings = BillingContext.getBillingSettings();
-    for (const [key, value] of Object.entries(settings)) {
-      if (!settings[key] || value === '') {
-        skip = true;
-      }
-    }
-    // Skip billing context generation if no settings are provided
+    const skip = (!settings.stripe.secretKey);
     if (skip) {
+      // Skip billing context generation if no settings are provided
       return;
     }
     await this.saveBillingSettings(BillingContext.getBillingSettings());
-    const billingImpl = await BillingFactory.getBillingImpl(this.tenantContext.getTenant().id);
+    const tenantID = this.tenantContext.getTenant().id;
+    const billingImpl = await BillingFactory.getBillingImpl(tenantID);
     if (!billingImpl) {
       throw new BackendError({
         source: Constants.CENTRAL_SERVER,
@@ -57,35 +57,21 @@ export default class BillingContext {
         module: 'BillingContext'
       });
     }
-
-    const adminUser: User = this.tenantContext.getUserContext(BillingContext.USERS[0]);
-    const basicUser: User = this.tenantContext.getUserContext(BillingContext.USERS[1]);
-
-    await billingImpl.synchronizeUser(this.tenantContext.getTenant().id, adminUser);
-    await billingImpl.synchronizeUser(this.tenantContext.getTenant().id, basicUser);
-
-    const adminBillingUser = await billingImpl.getUserByEmail(adminUser.email);
-    const basicBillingUser = await billingImpl.getUserByEmail(basicUser.email);
-
-    const adminInvoice = await billingImpl.createInvoice(adminBillingUser, { description: 'TestAdmin 1', amount: 100 });
-    const userInvoice = await billingImpl.createInvoice(basicBillingUser, { description: 'TestBasic 1', amount: 100 });
-    await billingImpl.createInvoiceItem(adminBillingUser, adminInvoice.invoice.invoiceID, { description: 'TestAdmin 2', amount: 100 });
-    await billingImpl.createInvoiceItem(basicBillingUser, userInvoice.invoice.invoiceID, { description: 'TestBasic 2', amount: 100 });
-
-    let invoice = await billingImpl.createInvoice(adminBillingUser, { description: 'TestAdmin3', amount: 100 });
-    await billingImpl.finalizeInvoice(invoice.invoice);
-    await billingImpl.sendInvoiceToUser(invoice.invoice);
-    invoice = await billingImpl.createInvoice(basicBillingUser, { description: 'TestBasic3', amount: 100 });
-    await billingImpl.finalizeInvoice(invoice.invoice);
-    await billingImpl.sendInvoiceToUser(invoice.invoice);
-    // Await billingImpl.synchronizeInvoices(this.tenantContext.getTenant().id);
+    // Create Users
+    const adminUser: User = this.tenantContext.getUserContext(ContextDefinition.USER_CONTEXTS.DEFAULT_ADMIN);
+    const basicUser: User = this.tenantContext.getUserContext(ContextDefinition.USER_CONTEXTS.BASIC_USER);
+    // Synchronize at least these 2 users - this creates a customer on the STRIPE side
+    await billingImpl.synchronizeUser(adminUser);
+    await billingImpl.synchronizeUser(basicUser);
   }
 
-  private async saveBillingSettings(stripeSettings) {
+  private async saveBillingSettings(billingSettings: BillingSettings) {
+    // TODO - rethink that part
     const tenantBillingSettings = await SettingStorage.getBillingSettings(this.tenantContext.getTenant().id);
-    tenantBillingSettings.stripe = stripeSettings;
+    tenantBillingSettings.billing = billingSettings.billing;
+    tenantBillingSettings.stripe = billingSettings.stripe;
     tenantBillingSettings.sensitiveData = ['content.stripe.secretKey'];
-    tenantBillingSettings.stripe.secretKey = Cypher.encrypt(stripeSettings.secretKey);
+    tenantBillingSettings.stripe.secretKey = await Cypher.encrypt(this.tenantContext.getTenant().id, billingSettings.stripe.secretKey);
     await SettingStorage.saveBillingSettings(this.tenantContext.getTenant().id, tenantBillingSettings);
   }
 }

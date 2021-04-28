@@ -12,8 +12,6 @@ import { soap } from 'strong-soap';
 // Default Module name
 const MODULE_NAME = 'SoapChargingStationClient';
 
-// Get the config
-const _wsdlEndpointConfig = Configuration.getWSDLEndpointConfig();
 export default class SoapChargingStationClient extends ChargingStationClient {
   public transactionId: number;
   public error: any;
@@ -28,6 +26,7 @@ export default class SoapChargingStationClient extends ChargingStationClient {
   private chargingStation: ChargingStation;
   private tenantID: string;
   private client: any;
+  private readonly wsdlEndpointConfig = Configuration.getWSDLEndpointConfig();
 
   private constructor(tenantID: string, chargingStation: ChargingStation) {
     super();
@@ -38,7 +37,6 @@ export default class SoapChargingStationClient extends ChargingStationClient {
 
   static async getChargingStationClient(tenantID: string, chargingStation: ChargingStation): Promise<SoapChargingStationClient> {
     const scsc = new SoapChargingStationClient(tenantID, chargingStation);
-    // eslint-disable-next-line no-undef
     return await new Promise((fulfill, reject) => {
       let chargingStationWdsl = null;
       // Read the WSDL client files
@@ -66,7 +64,7 @@ export default class SoapChargingStationClient extends ChargingStationClient {
       }
       // Client options
       const options: any = {};
-      // Create client
+      // Create SOAP client
       soap.createClient(chargingStationWdsl, options, (error, client) => {
         if (error) {
           // Log
@@ -368,6 +366,14 @@ export default class SoapChargingStationClient extends ChargingStationClient {
     throw new Error('Method not implemented.');
   }
 
+  private getWSDLEndpointBaseSecureUrl() {
+    return this.wsdlEndpointConfig?.baseSecureUrl;
+  }
+
+  private getWSDLEndpointBaseUrl() {
+    return this.wsdlEndpointConfig?.baseUrl ? this.wsdlEndpointConfig.baseUrl : '';
+  }
+
   private initSoapHeaders(command: Command) {
     // Clear the SOAP Headers`
     this.client.clearSoapHeaders();
@@ -377,6 +383,6 @@ export default class SoapChargingStationClient extends ChargingStationClient {
     this.client.addSoapHeader('<a:ReplyTo xmlns:a="http://www.w3.org/2005/08/addressing"><a:Address>http://www.w3.org/2005/08/addressing/anonymous</a:Address></a:ReplyTo>');
     this.client.addSoapHeader(`<a:To xmlns:a="http://www.w3.org/2005/08/addressing">${this.chargingStation.chargingStationURL}</a:To>`);
     this.client.addSoapHeader(`<a:Action xmlns:a="http://www.w3.org/2005/08/addressing">/${command}</a:Action>`);
-    this.client.addSoapHeader(`<a:From xmlns:a="http://www.w3.org/2005/08/addressing"><a:Address>${_wsdlEndpointConfig.baseUrl}</a:Address></a:From>`);
+    this.client.addSoapHeader(`<a:From xmlns:a="http://www.w3.org/2005/08/addressing"><a:Address>${this.getWSDLEndpointBaseSecureUrl() ? this.getWSDLEndpointBaseSecureUrl() : this.getWSDLEndpointBaseUrl() }</a:Address></a:From>`);
   }
 }

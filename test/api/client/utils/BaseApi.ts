@@ -25,23 +25,33 @@ export default class BaseApi {
     let t1 = 0;
     try {
       t0 = performance.now();
+      // Debug
+      if (config.get('trace_logs')) {
+        console.debug('HTTP Request =======================');
+        console.debug(httpRequest.baseURL);
+        console.debug(httpRequest.url);
+        console.debug(httpRequest.method);
+        console.debug(httpRequest.data);
+        console.debug('====================================');
+      }
       // Execute with Axios
       httpResponse = await axiosInstance(httpRequest);
       // Debug
-      if (config.trace_logs) {
-        console.log('HTTP Request ====================================');
-        console.log(httpRequest.baseURL);
-        console.log(httpRequest.url);
-        console.log(httpRequest.method);
-        console.log(httpRequest.data);
-        console.log(httpResponse.status);
-        console.log(httpResponse.statusText);
-        console.log(httpResponse.data);
-        console.log('====================================');
+      if (config.get('trace_logs')) {
+        console.debug('HTTP Response ======================');
+        console.debug(httpResponse.status);
+        console.debug(httpResponse.statusText);
+        console.debug(httpResponse.data);
+        console.debug('====================================');
       }
       t1 = performance.now();
     } catch (error) {
       // Handle errors
+      if (config.get('trace_logs')) {
+        console.debug('HTTP Error ======================');
+        console.debug(error);
+        console.debug('====================================');
+      }
       if (error.response) {
         httpResponse = error.response;
       } else if (error.request) {

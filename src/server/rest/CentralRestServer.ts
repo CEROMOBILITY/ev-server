@@ -5,14 +5,13 @@ import SingleChangeNotification, { NotificationData } from '../../types/SingleCh
 import express, { NextFunction, Request, Response } from 'express';
 
 import AuthService from './v1/service/AuthService';
-import CentralRestServerAuthentication from './CentralRestServerAuthentication';
 import CentralRestServerService from './CentralRestServerService';
 import CentralSystemRestServiceConfiguration from '../../types/configuration/CentralSystemRestServiceConfiguration';
 import ChangeNotification from '../../types/ChangeNotification';
 import ChargingStationConfiguration from '../../types/configuration/ChargingStationConfiguration';
 import Configuration from '../../utils/Configuration';
 import Constants from '../../utils/Constants';
-import ExpressTools from '../ExpressTools';
+import ExpressUtils from '../ExpressUtils';
 import GlobalRouter from './v1/router/GlobalRouter';
 import Logging from '../../utils/Logging';
 import { ServerAction } from '../../types/Server';
@@ -40,17 +39,17 @@ export default class CentralRestServer {
     CentralRestServer.centralSystemRestConfig = centralSystemRestConfig;
     this.chargingStationConfig = chargingStationConfig;
     // Initialize express app
-    this.expressApplication = ExpressTools.initApplication('2mb', centralSystemRestConfig.debug);
+    this.expressApplication = ExpressUtils.initApplication('2mb', centralSystemRestConfig.debug);
     // Mount express-sanitizer middleware
     this.expressApplication.use(sanitize());
     // Authentication
     this.expressApplication.use(AuthService.initialize());
     // Routers
     this.expressApplication.use('/v1', new GlobalRouter().buildRoutes());
-    // Auth services
-    this.expressApplication.all('/client/auth/:action', CentralRestServerAuthentication.authService.bind(this));
     // Secured API
-    this.expressApplication.all('/client/api/:action', AuthService.authenticate(), CentralRestServerService.restServiceSecured.bind(this));
+    this.expressApplication.all('/client/api/:action',
+      AuthService.authenticate(),
+      CentralRestServerService.restServiceSecured.bind(this));
     // Util API
     this.expressApplication.all('/client/util/:action', CentralRestServerService.restServiceUtil.bind(this));
     // Workaround URL encoding issue
@@ -61,9 +60,9 @@ export default class CentralRestServer {
       await CentralRestServerService.restServiceUtil(req, res, next);
     });
     // Post init
-    ExpressTools.postInitApplication(this.expressApplication);
+    ExpressUtils.postInitApplication(this.expressApplication);
     // Create HTTP server to serve the express app
-    CentralRestServer.restHttpServer = ExpressTools.createHttpServer(CentralRestServer.centralSystemRestConfig, this.expressApplication);
+    CentralRestServer.restHttpServer = ExpressUtils.createHttpServer(CentralRestServer.centralSystemRestConfig, this.expressApplication);
   }
 
   startSocketIO(): void {
@@ -91,7 +90,8 @@ export default class CentralRestServer {
       return done(null, false, 'SocketIO client is trying to connect without a token');
     }));
     // Handle Socket IO connection
-    CentralRestServer.socketIOServer.on('connect', (socket: Socket) => {
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    CentralRestServer.socketIOServer.on('connect', async (socket: Socket): Promise<void> => {
       Logging.logDebug({
         tenantID: Constants.DEFAULT_TENANT,
         module: MODULE_NAME, method: 'startSocketIO',
@@ -117,7 +117,7 @@ export default class CentralRestServer {
         });
         // Join Tenant Room
         try {
-          void socket.join(userToken.tenantID);
+          await socket.join(userToken.tenantID);
           CentralRestServer.centralSystemRestConfig.debug && console.log(`${userToken.tenantName ? userToken.tenantName : userToken.tenantID} - ${Utils.buildUserFullName(userToken, false)} - SocketIO client is connected on room '${userToken.tenantID}'`);
           Logging.logDebug({
             tenantID: userToken.tenantID,
@@ -175,7 +175,7 @@ export default class CentralRestServer {
 
   // Start the server
   start(): void {
-    ExpressTools.startServer(CentralRestServer.centralSystemRestConfig, CentralRestServer.restHttpServer, 'REST', MODULE_NAME);
+    ExpressUtils.startServer(CentralRestServer.centralSystemRestConfig, CentralRestServer.restHttpServer, 'REST', MODULE_NAME);
   }
 
   public notifyUser(tenantID: string, action: Action, data: NotificationData): void {
@@ -430,6 +430,22 @@ export default class CentralRestServer {
     this.addChangeNotificationInBuffer({
       'tenantID': tenantID,
       'entity': Entity.OCPI_ENDPOINTS,
+      'action': action
+    });
+  }
+
+  public notifyAsyncTaskEndpoint(tenantID: string, action: Action, data: NotificationData): void {
+    // Add in buffer
+    this.addSingleChangeNotificationInBuffer({
+      'tenantID': tenantID,
+      'entity': Entity.ASYNC_TASK,
+      'action': action,
+      'data': data
+    });
+    // Add in buffer
+    this.addChangeNotificationInBuffer({
+      'tenantID': tenantID,
+      'entity': Entity.ASYNC_TASKS,
       'action': action
     });
   }

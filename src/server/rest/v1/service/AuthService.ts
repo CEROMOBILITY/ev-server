@@ -4,7 +4,7 @@ import { HttpLoginRequest, HttpResetPasswordRequest } from '../../../../types/re
 import User, { UserRole, UserStatus } from '../../../../types/User';
 
 import AppError from '../../../../exception/AppError';
-import AuthSecurity from './security/AuthSecurity';
+import AuthValidator from '../validator/AuthValidator';
 import Authorizations from '../../../../authorization/Authorizations';
 import AxiosFactory from '../../../../utils/AxiosFactory';
 import BillingFactory from '../../../../integration/billing/BillingFactory';
@@ -15,6 +15,8 @@ import I18nManager from '../../../../utils/I18nManager';
 import Logging from '../../../../utils/Logging';
 import NotificationHandler from '../../../../notification/NotificationHandler';
 import { ServerAction } from '../../../../types/Server';
+import SessionHashService from './SessionHashService';
+import SettingStorage from '../../../../storage/mongodb/SettingStorage';
 import SiteStorage from '../../../../storage/mongodb/SiteStorage';
 import { StatusCodes } from 'http-status-codes';
 import Tag from '../../../../types/Tag';
@@ -37,8 +39,6 @@ if (_centralSystemRestConfig) {
   jwtOptions = {
     jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
     secretOrKey: _centralSystemRestConfig.userTokenKey
-    // pragma issuer: 'evse-dashboard',
-    // audience: 'evse-dashboard'
   };
   // Use
   passport.use(new Strategy(jwtOptions, (jwtPayload, done) =>
@@ -58,9 +58,16 @@ export default class AuthService {
     return passport.authenticate('jwt', { session: false });
   }
 
+  public static async checkSessionHash(req: Request, res: Response, next: NextFunction): Promise<void> {
+    // Check if User has been updated and require new login
+    if (!await SessionHashService.isSessionHashUpdated(req, res, next)) {
+      next();
+    }
+  }
+
   public static async handleLogIn(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const filteredRequest = AuthSecurity.filterLoginRequest(req.body);
+    const filteredRequest = AuthValidator.getInstance().validateAuthSignIn(req.body);
     // Get Tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
     if (!tenantID) {
@@ -74,46 +81,9 @@ export default class AuthService {
       });
     }
     req.user = { tenantID };
-    // Check
-    if (!filteredRequest.email) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Email is mandatory',
-        module: MODULE_NAME,
-        method: 'handleLogIn'
-      });
-    }
-    if (!filteredRequest.password) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Password is mandatory',
-        module: MODULE_NAME,
-        method: 'handleLogIn'
-      });
-    }
-    if (!filteredRequest.acceptEula) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.USER_EULA_ERROR,
-        message: 'The End-user License Agreement is mandatory',
-        module: MODULE_NAME,
-        method: 'handleLogIn'
-      });
-    }
     const user = await UserStorage.getUserByEmail(tenantID, filteredRequest.email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.email}' does not exist`,
       MODULE_NAME, 'handleLogIn', req.user);
-    if (user.deleted) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        message: `User with Email '${filteredRequest.email}' is logically deleted`,
-        module: MODULE_NAME,
-        method: 'handleLogIn'
-      });
-    }
     // Check if the number of trials is reached
     if (user.passwordWrongNbrTrials >= _centralSystemRestConfig.passwordWrongNumberOfTrial) {
       // Check if the user is still locked
@@ -121,7 +91,7 @@ export default class AuthService {
         // Yes: Check date to reset pass
         if (user.passwordBlockedUntil && moment(user.passwordBlockedUntil).isBefore(moment())) {
           // Time elapsed: activate the account again
-          Logging.logSecurityInfo({
+          await Logging.logSecurityInfo({
             tenantID: req.user.tenantID,
             actionOnUser: user,
             module: MODULE_NAME, method: 'handleLogIn', action: action,
@@ -161,7 +131,12 @@ export default class AuthService {
 
   public static async handleRegisterUser(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const filteredRequest = AuthSecurity.filterRegisterUserRequest(req.body);
+    const filteredRequest = AuthValidator.getInstance().validateAuthSignOn(req.body);
+    // Override
+    filteredRequest.status = UserStatus.PENDING;
+    if (!filteredRequest.locale) {
+      filteredRequest.locale = Constants.DEFAULT_LOCALE;
+    }
     // Get the Tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
     if (!tenantID) {
@@ -170,30 +145,10 @@ export default class AuthService {
         errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
         message: `User is trying to register with an unknown tenant '${filteredRequest.tenant}'!`,
         module: MODULE_NAME,
-        method: 'handleGetEndUserLicenseAgreement'
-      });
-    }
-    req.user = { tenantID };
-    // Check EULA
-    if (!filteredRequest.acceptEula) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.USER_EULA_ERROR,
-        message: 'The End-user License Agreement is mandatory',
-        module: MODULE_NAME,
-        method: 'handleLogIn'
-      });
-    }
-    // Check
-    if (!filteredRequest.captcha) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The captcha is mandatory',
-        module: MODULE_NAME,
         method: 'handleRegisterUser'
       });
     }
+    req.user = { tenantID };
     // Check Captcha
     const recaptchaURL = `https://www.google.com/recaptcha/api/siteverify?secret=${_centralSystemRestConfig.captchaSecretKey}&response=${filteredRequest.captcha}&remoteip=${req.connection.remoteAddress}`;
     const response = await AxiosFactory.getAxiosInstance(tenantID).get(recaptchaURL);
@@ -215,6 +170,7 @@ export default class AuthService {
       });
     }
     // Check Mandatory field
+    Object.assign(filteredRequest, { password: filteredRequest.passwords.password });
     UtilsService.checkIfUserValid(filteredRequest as User, null, req);
     // Check email
     const user = await UserStorage.getUserByEmail(tenantID, filteredRequest.email);
@@ -228,7 +184,7 @@ export default class AuthService {
       });
     }
     // Generate a password
-    const newPasswordHashed = await Utils.hashPasswordBcrypt(filteredRequest.password);
+    const newPasswordHashed = await Utils.hashPasswordBcrypt(filteredRequest.passwords.password);
     // Create the user
     const newUser = UserStorage.createNewUser() as User;
     newUser.email = filteredRequest.email;
@@ -249,7 +205,7 @@ export default class AuthService {
     // Save User Status
     await UserStorage.saveUserStatus(tenantID, newUser.id, UserStatus.PENDING);
     // Get the i18n translation class
-    const i18nManager = new I18nManager(newUser.locale);
+    const i18nManager = I18nManager.getInstanceForLocale(newUser.locale);
     const tag: Tag = {
       id: newUser.name[0] + newUser.firstName[0] + Utils.getRandomIntSafe().toString(),
       active: true,
@@ -290,7 +246,7 @@ export default class AuthService {
       }
     }
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: newUser, action: action,
       module: MODULE_NAME,
@@ -320,7 +276,8 @@ export default class AuthService {
     next();
   }
 
-  public static async checkAndSendResetPasswordConfirmationEmail(tenantID: string, filteredRequest: Partial<HttpResetPasswordRequest>, action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
+  public static async checkAndSendResetPasswordConfirmationEmail(tenantID: string, filteredRequest: Partial<HttpResetPasswordRequest>, action: ServerAction, req: Request,
+      res: Response, next: NextFunction): Promise<void> {
     // No hash: Send email with init pass hash link
     if (!filteredRequest.captcha) {
       throw new AppError({
@@ -328,7 +285,7 @@ export default class AuthService {
         errorCode: HTTPError.GENERAL_ERROR,
         message: 'The captcha is mandatory',
         module: MODULE_NAME,
-        method: 'handleUserPasswordReset'
+        method: 'checkAndSendResetPasswordConfirmationEmail'
       });
     }
     // Check captcha
@@ -341,7 +298,7 @@ export default class AuthService {
         errorCode: HTTPError.GENERAL_ERROR,
         message: 'The reCaptcha is invalid',
         module: MODULE_NAME,
-        method: 'handleRegisterUser'
+        method: 'checkAndSendResetPasswordConfirmationEmail'
       });
     } else if (response.data.score < 0.5) {
       throw new AppError({
@@ -349,32 +306,22 @@ export default class AuthService {
         errorCode: HTTPError.GENERAL_ERROR,
         message: `The reCaptcha score is too low, got ${response.data.score} and expected to be >= 0.5`,
         module: MODULE_NAME,
-        method: 'handleRegisterUser'
+        method: 'checkAndSendResetPasswordConfirmationEmail'
       });
     }
     // Generate a new password
     const user = await UserStorage.getUserByEmail(tenantID, filteredRequest.email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.email}' does not exist`,
-      MODULE_NAME, 'handleUserPasswordReset', req.user);
-    // Deleted
-    if (user.deleted) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        message: `User with Email '${filteredRequest.email}' is logically deleted`,
-        module: MODULE_NAME,
-        method: 'handleUserPasswordReset'
-      });
-    }
+      MODULE_NAME, 'checkAndSendResetPasswordConfirmationEmail', req.user);
     const resetHash = Utils.generateUUID();
     // Init Password info
     await UserStorage.saveUserPassword(tenantID, user.id, { passwordResetHash: resetHash });
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: user, action: action,
       module: MODULE_NAME,
-      method: 'handleUserPasswordReset',
+      method: 'checkAndSendResetPasswordConfirmationEmail',
       message: `User with Email '${req.body.email}' will receive an email to reset his password`
     });
     // Send notification
@@ -401,18 +348,19 @@ export default class AuthService {
     const user = await UserStorage.getUserByPasswordResetHash(tenantID, filteredRequest.hash);
     UtilsService.assertObjectExists(action, user, `User with password reset hash '${filteredRequest.hash}' does not exist`,
       MODULE_NAME, 'handleUserPasswordReset', req.user);
-    // Deleted
-    if (user.deleted) {
+    // Check password
+    if (!Utils.isPasswordValid(filteredRequest.passwords.password)) {
       throw new AppError({
         source: Constants.CENTRAL_SERVER,
         errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        message: `User with password reset hash '${filteredRequest.hash}' is logically deleted`,
+        message: `Password with reset hash '${filteredRequest.hash}' is not strong enough`,
         module: MODULE_NAME,
+        user: user,
         method: 'handleUserPasswordReset'
       });
     }
     // Hash it
-    const newHashedPassword = await Utils.hashPasswordBcrypt(filteredRequest.password);
+    const newHashedPassword = await Utils.hashPasswordBcrypt(filteredRequest.passwords.password);
     // Save new password
     await UserStorage.saveUserPassword(tenantID, user.id,
       {
@@ -427,7 +375,7 @@ export default class AuthService {
       await UserStorage.saveUserStatus(tenantID, user.id, UserStatus.ACTIVE);
     }
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: user, action: action,
       module: MODULE_NAME,
@@ -435,14 +383,13 @@ export default class AuthService {
       message: 'User\'s password has been reset successfully',
       detailedMessages: { params: req.body }
     });
-
     // Ok
     res.json(Constants.REST_RESPONSE_SUCCESS);
     next();
   }
 
   public static async handleUserPasswordReset(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
-    const filteredRequest = AuthSecurity.filterResetPasswordRequest(req.body);
+    const filteredRequest = AuthValidator.getInstance().validateAuthResetPassword(req.body);
     // Get Tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
     if (!tenantID) {
@@ -456,28 +403,18 @@ export default class AuthService {
       });
     }
     // Check hash
-    if (!filteredRequest.hash) {
-      // Send Confirmation Email for requesting a new password
-      await AuthService.checkAndSendResetPasswordConfirmationEmail(tenantID, filteredRequest, action, req, res, next);
-    } else {
+    if (filteredRequest.hash) {
       // Send the new password
       await AuthService.resetUserPassword(tenantID, filteredRequest, action, req, res, next);
+    } else {
+      // Send Confirmation Email for requesting a new password
+      await AuthService.checkAndSendResetPasswordConfirmationEmail(tenantID, filteredRequest, action, req, res, next);
     }
   }
 
   public static async handleCheckEndUserLicenseAgreement(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const filteredRequest = AuthSecurity.filterCheckEulaRequest(req.query);
-    // Check
-    if (!filteredRequest.Tenant) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Tenant is mandatory',
-        module: MODULE_NAME,
-        method: 'handleCheckEndUserLicenseAgreement'
-      });
-    }
+    const filteredRequest = AuthValidator.getInstance().validateAuthCheckEula(req.query);
     // Get Tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.Tenant);
     if (!tenantID) {
@@ -485,16 +422,6 @@ export default class AuthService {
         source: Constants.CENTRAL_SERVER,
         errorCode: HTTPError.GENERAL_ERROR,
         message: 'The Tenant is mandatory',
-        module: MODULE_NAME,
-        method: 'handleCheckEndUserLicenseAgreement'
-      });
-    }
-    // Check hash
-    if (!filteredRequest.Email) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Email is mandatory',
         module: MODULE_NAME,
         method: 'handleCheckEndUserLicenseAgreement'
       });
@@ -522,28 +449,16 @@ export default class AuthService {
 
   public static async handleGetEndUserLicenseAgreement(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const filteredRequest = AuthSecurity.filterEndUserLicenseAgreementRequest(req);
-    // Get Tenant
-    const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
-
-    if (!tenantID) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        message: `User is trying to access resource with an unknown tenant '${filteredRequest.tenant}'!`,
-        module: MODULE_NAME, method: 'handleGetEndUserLicenseAgreement',
-        action: action
-      });
-    }
+    const filteredRequest = AuthValidator.getInstance().validateAuthEula(req.query);
     // Get it
-    const endUserLicenseAgreement = await UserStorage.getEndUserLicenseAgreement(tenantID, filteredRequest.Language);
+    const endUserLicenseAgreement = await UserStorage.getEndUserLicenseAgreement(Constants.DEFAULT_TENANT, filteredRequest.Language);
     res.json(endUserLicenseAgreement);
     next();
   }
 
   public static async handleVerifyEmail(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const filteredRequest = AuthSecurity.filterVerifyEmailRequest(req.query);
+    const filteredRequest = AuthValidator.getInstance().validateAuthVerifyEmail(req.query);
     // Get Tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.Tenant);
     if (!tenantID) {
@@ -551,7 +466,8 @@ export default class AuthService {
         source: Constants.CENTRAL_SERVER,
         errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
         action: action,
-        module: MODULE_NAME, method: 'handleVerifyEmail',
+        module: MODULE_NAME,
+        method: 'handleVerifyEmail',
         message: `User is trying to access resource with an unknown tenant '${filteredRequest.Tenant}'!`
       });
     }
@@ -566,39 +482,9 @@ export default class AuthService {
       });
     }
     // Check email
-    if (!filteredRequest.Email) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        action: action,
-        module: MODULE_NAME, method: 'handleVerifyEmail',
-        message: 'The email is mandatory'
-      });
-    }
-    // Check verificationToken
-    if (!filteredRequest.VerificationToken) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        action: action,
-        module: MODULE_NAME, method: 'handleVerifyEmail',
-        message: 'Verification token is mandatory'
-      });
-    }
-    // Check email
     const user = await UserStorage.getUserByEmail(tenantID, filteredRequest.Email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.Email}' does not exist`,
       MODULE_NAME, 'handleVerifyEmail', req.user);
-    // User deleted?
-    if (user.deleted) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        action: action,
-        module: MODULE_NAME, method: 'handleVerifyEmail',
-        message: 'The user is logically deleted'
-      });
-    }
     // Check if account is already active
     if (user.status === UserStatus.ACTIVE) {
       throw new AppError({
@@ -621,15 +507,16 @@ export default class AuthService {
         message: 'Wrong Verification Token'
       });
     }
+    const userSettings = await SettingStorage.getUserSettings(tenantID);
+    const userStatus = userSettings.user.autoActivateAccountAfterValidation ? UserStatus.ACTIVE : UserStatus.INACTIVE;
     // Save User Status
-    await UserStorage.saveUserStatus(tenantID, user.id, UserStatus.ACTIVE);
+    await UserStorage.saveUserStatus(tenantID, user.id, userStatus);
     // For integration with billing
     const billingImpl = await BillingFactory.getBillingImpl(tenantID);
     if (billingImpl) {
       try {
-        const billingUser = await billingImpl.createUser(user);
-        await UserStorage.saveUserBillingData(tenantID, user.id, billingUser.billingData);
-        Logging.logInfo({
+        await billingImpl.synchronizeUser(user);
+        await Logging.logInfo({
           tenantID: tenantID,
           module: MODULE_NAME, method: 'handleVerifyEmail',
           action: action,
@@ -637,7 +524,7 @@ export default class AuthService {
           message: 'User has been created successfully in the billing system'
         });
       } catch (error) {
-        Logging.logError({
+        await Logging.logError({
           tenantID: tenantID,
           module: MODULE_NAME, method: 'handleVerifyEmail',
           action: action,
@@ -651,24 +538,34 @@ export default class AuthService {
     await UserStorage.saveUserAccountVerification(tenantID, user.id,
       { verificationToken: null, verifiedAt: new Date() });
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: user, action: action,
       module: MODULE_NAME, method: 'handleVerifyEmail',
-      message: 'User account has been successfully verified and activated',
+      message: userStatus === UserStatus.ACTIVE ?
+        'User account has been successfully verified and activated' :
+        'User account has been successfully verified but needs an admin to activate it',
       detailedMessages: { params: req.query }
     });
+    NotificationHandler.sendAccountVerification(
+      tenantID,
+      Utils.generateUUID(),
+      user,
+      {
+        'user': user,
+        'userStatus': userStatus,
+        'evseDashboardURL': Utils.buildEvseURL(filteredRequest.Tenant),
+      }
+    ).catch(() => { });
     // Ok
-    res.json(Constants.REST_RESPONSE_SUCCESS);
+    res.json({ status: 'Success', userStatus });
     next();
   }
 
   public static async handleResendVerificationEmail(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
-    // Filter
-    const filteredRequest = AuthSecurity.filterResendVerificationEmail(req.body);
+    const filteredRequest = AuthValidator.getInstance().validateAuthResendVerificationEmail(req.body);
     // Get the tenant
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
-
     if (!tenantID) {
       throw new AppError({
         source: Constants.CENTRAL_SERVER,
@@ -685,28 +582,6 @@ export default class AuthService {
         source: Constants.CENTRAL_SERVER,
         errorCode: HTTPError.GENERAL_ERROR,
         message: 'Cannot request a verification Email in the Super Tenant',
-        module: MODULE_NAME,
-        method: 'handleResendVerificationEmail',
-        action: action
-      });
-    }
-    // Check email
-    if (!filteredRequest.email) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Email is mandatory',
-        module: MODULE_NAME,
-        method: 'handleResendVerificationEmail',
-        action: action
-      });
-    }
-    // Check captcha
-    if (!filteredRequest.captcha) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The captcha is mandatory',
         module: MODULE_NAME,
         method: 'handleResendVerificationEmail',
         action: action
@@ -739,17 +614,6 @@ export default class AuthService {
     const user = await UserStorage.getUserByEmail(tenantID, filteredRequest.email);
     UtilsService.assertObjectExists(action, user, `User with email '${filteredRequest.email}' does not exist`,
       MODULE_NAME, 'handleResendVerificationEmail', req.user);
-    // User deleted?
-    if (user.deleted) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.OBJECT_DOES_NOT_EXIST_ERROR,
-        message: `The user with Email '${filteredRequest.email}' is logically deleted`,
-        module: MODULE_NAME,
-        method: 'handleResendVerificationEmail',
-        action: action
-      });
-    }
     // Check if account is already active
     if (user.status === UserStatus.ACTIVE) {
       throw new AppError({
@@ -777,7 +641,7 @@ export default class AuthService {
       verificationToken = user.verificationToken;
     }
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: user,
       action: action,
@@ -856,14 +720,14 @@ export default class AuthService {
 
   public static async userLoginSucceeded(action: ServerAction, tenantID: string, user: User, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Password / Login OK
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: tenantID,
       user: user,
       module: MODULE_NAME, method: 'checkUserLogin',
       action: action, message: 'User logged in successfully'
     });
     // Set Eula Info on Login Only
-    if (action === ServerAction.REST_SIGNIN) {
+    if (action === ServerAction.LOGIN) {
       // Save EULA
       const endUserLicenseAgreement = await UserStorage.getEndUserLicenseAgreement(tenantID, Utils.getLanguageFromLocale(user.locale));
       await UserStorage.saveUserEULA(tenantID, user.id,

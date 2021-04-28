@@ -25,12 +25,12 @@ export default class AddUserInTransactionsTask extends MigrationTask {
       .aggregate([
         { $match: { userID: null } }
       ]).toArray();
-    if (transactionsMDB.length > 0) {
-      Logging.logInfo({
+    if (!Utils.isEmptyArray(transactionsMDB)) {
+      await Logging.logInfo({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.MIGRATION,
         module: MODULE_NAME, method: 'migrateTenant',
-        message: `${transactionsMDB.length} Transaction(s) are going to be assigned an user in Tenant '${tenant.name}' ('${tenant.subdomain}')...`,
+        message: `${transactionsMDB.length} Transaction(s) are going to be assigned an user in Tenant ${Utils.buildTenantName(tenant)}...`,
       });
       for (const transactionMDB of transactionsMDB) {
         // Get the user with tag
@@ -52,11 +52,11 @@ export default class AddUserInTransactionsTask extends MigrationTask {
           success++;
         }
       }
-      Logging.logInfo({
+      await Logging.logInfo({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.MIGRATION,
         module: MODULE_NAME, method: 'migrateTenant',
-        message: `${success} Transaction(s) have been assigned an user in Tenant '${tenant.name}' ('${tenant.subdomain}')...`,
+        message: `${success} Transaction(s) have been assigned an user in Tenant ${Utils.buildTenantName(tenant)}...`,
       });
     }
   }

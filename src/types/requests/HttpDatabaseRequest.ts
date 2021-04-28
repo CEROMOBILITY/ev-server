@@ -1,8 +1,10 @@
-export default interface HttpDatabaseRequest {
-  Skip: number;
-  Limit: number;
-  OnlyRecordCount?: boolean;
-  SortFields: string;
-  SortDirs: string[]; // TODO: Deprecated: remove it
-  Sort: any; // TODO: Deprecated: remove it
+export interface HttpDatabaseProjectRequest {
+  ProjectFields?: string;
 }
+export default interface HttpDatabaseRequest extends HttpDatabaseProjectRequest {
+  Skip?: number;
+  Limit?: number;
+  OnlyRecordCount?: boolean;
+  SortFields: any;
+}
+

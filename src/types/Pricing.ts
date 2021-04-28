@@ -1,8 +1,23 @@
-
-export interface Pricing {
+export interface PricingModel {
+  version: string;
   timestamp: Date;
-  pricekWh: number;
   priceUnit: string;
+  pricingItems: PricingItem[];
+}
+
+export interface PricingItem {
+  category: PricingCategory;
+  precisionPrice: number;
+  calculatedPrice: number;
+  calculatedRoundedPrice: number;
+}
+
+export enum PricingCategory {
+  CONSUMPTION = 'consumption',
+}
+
+export interface KWHPricingItem extends PricingItem {
+  pricePerKWH: number;
 }
 
 export interface PricedConsumption {
@@ -10,5 +25,12 @@ export interface PricedConsumption {
   cumulatedAmount: number;
   roundedAmount: number;
   currencyCode: string;
-  pricingSource: string;
+  pricingSource: PricingSource;
 }
+
+export enum PricingSource {
+  SIMPLE = 'simple',
+  CONVERGENT_CHARGING = 'convergentCharging',
+  OCPI = 'ocpi',
+}
+

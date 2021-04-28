@@ -1,59 +1,88 @@
+import { HttpBillingInvoiceRequest, HttpBillingWebHookRequest, HttpDeletePaymentMethod, HttpPaymentMethods, HttpSetupPaymentMethod } from '../../../../../types/requests/HttpBillingRequest';
 import { HttpCreateTransactionInvoiceRequest, HttpForceSynchronizeUserInvoicesRequest, HttpSynchronizeUserRequest } from '../../../../../types/requests/HttpUserRequest';
 
-import { HttpBillingInvoiceRequest } from '../../../../../types/requests/HttpBillingRequest';
 import HttpByIDRequest from '../../../../../types/requests/HttpByIDRequest';
+import Utils from '../../../../../utils/Utils';
 import UtilsSecurity from './UtilsSecurity';
 import sanitize from 'mongo-sanitize';
 
 export default class BillingSecurity {
-  static filterSynchronizeUserRequest(request: any): HttpSynchronizeUserRequest {
+  static filterSynchronizeUserRequest(requestBody: any): HttpSynchronizeUserRequest {
     const filteredUser: HttpSynchronizeUserRequest = {} as HttpSynchronizeUserRequest;
-    if (request.id) {
-      filteredUser.id = sanitize(request.id);
+    if (Utils.objectHasProperty(requestBody, 'id')) {
+      filteredUser.id = sanitize(requestBody.id);
     }
-    if (request.email) {
-      filteredUser.email = sanitize(request.email);
+    if (Utils.objectHasProperty(requestBody, 'email')) {
+      filteredUser.email = sanitize(requestBody.email);
     }
     return filteredUser;
   }
 
-  static filterGetUserInvoicesRequest(request: any): HttpBillingInvoiceRequest {
+  static filterGetUserInvoicesRequest(requestQuery: any): HttpBillingInvoiceRequest {
     const filteredRequest = {} as HttpBillingInvoiceRequest;
-    if (request.UserID) {
-      filteredRequest.UserID = sanitize(request.UserID);
+    if (Utils.objectHasProperty(requestQuery, 'UserID')) {
+      filteredRequest.UserID = sanitize(requestQuery.UserID);
     }
-    if (request.Status) {
-      filteredRequest.Status = sanitize(request.Status);
+    if (Utils.objectHasProperty(requestQuery, 'Status')) {
+      filteredRequest.Status = sanitize(requestQuery.Status);
     }
-    if (request.StartDateTime) {
-      filteredRequest.StartDateTime = sanitize(request.StartDateTime);
+    if (Utils.objectHasProperty(requestQuery, 'StartDateTime')) {
+      filteredRequest.StartDateTime = sanitize(requestQuery.StartDateTime);
     }
-    if (request.EndDateTime) {
-      filteredRequest.EndDateTime = sanitize(request.EndDateTime);
+    if (Utils.objectHasProperty(requestQuery, 'EndDateTime')) {
+      filteredRequest.EndDateTime = sanitize(requestQuery.EndDateTime);
     }
-    if (request.Search) {
-      filteredRequest.Search = sanitize(request.Search);
+    if (Utils.objectHasProperty(requestQuery, 'Search')) {
+      filteredRequest.Search = sanitize(requestQuery.Search);
     }
-    UtilsSecurity.filterSkipAndLimit(request, filteredRequest);
-    UtilsSecurity.filterSort(request, filteredRequest);
+    UtilsSecurity.filterSkipAndLimit(requestQuery, filteredRequest);
+    UtilsSecurity.filterSort(requestQuery, filteredRequest);
     return filteredRequest;
   }
 
-  static filterForceSynchronizeUserInvoicesRequest(request: any): HttpForceSynchronizeUserInvoicesRequest {
+  static filterForceSynchronizeUserInvoicesRequest(requestBody: any): HttpForceSynchronizeUserInvoicesRequest {
     return {
-      userID: sanitize(request.userID)
+      userID: sanitize(requestBody.userID)
     };
   }
 
-  static filterLinkTransactionToInvoiceRequest(request: any): HttpCreateTransactionInvoiceRequest {
+  static filterLinkTransactionToInvoiceRequest(requestBody: any): HttpCreateTransactionInvoiceRequest {
     return {
-      transactionID: sanitize(request.transactionID)
+      transactionID: sanitize(requestBody.transactionID)
     };
   }
 
-  static filterDownloadInvoiceRequest(request: any): HttpByIDRequest {
+  static filterDownloadInvoiceRequest(requestQuery: any): HttpByIDRequest {
     return {
-      ID: sanitize(request.ID)
+      ID: sanitize(requestQuery.ID)
+    };
+  }
+
+  static filterBillingWebHookRequest(requestQuery: any): HttpBillingWebHookRequest {
+    return {
+      tenantID: sanitize(requestQuery.TenantID)
+    };
+  }
+
+  static filterSetupPaymentMethodRequest(requestBody: any): HttpSetupPaymentMethod {
+    return {
+      userID: sanitize(requestBody.userID),
+      paymentMethodId: sanitize(requestBody.paymentMethodId),
+    };
+  }
+
+  static filterPaymentMethodsRequest(requestQuery: any): HttpPaymentMethods {
+    const filteredRequest: HttpPaymentMethods = {
+      userID: sanitize(requestQuery.userID)
+    };
+    UtilsSecurity.filterSkipAndLimit(requestQuery, filteredRequest);
+    return filteredRequest;
+  }
+
+  static filterDeletePaymentMethodRequest(requestBody: any): HttpDeletePaymentMethod {
+    return {
+      userID: sanitize(requestBody.userID),
+      paymentMethodId: sanitize(requestBody.paymentMethodId),
     };
   }
 }

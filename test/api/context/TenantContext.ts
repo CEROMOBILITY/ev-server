@@ -7,12 +7,14 @@ import Factory from '../../factories/Factory';
 import OCPPJsonService15 from '../ocpp/soap/OCPPSoapService15';
 import OCPPJsonService16 from '../ocpp/json/OCPPJsonService16';
 import OCPPService from '../ocpp/OCPPService';
-import RegistrationToken from '../../types/RegistrationToken';
-import SiteArea from '../../types/SiteArea';
+import RegistrationToken from '../../../src/types/RegistrationToken';
+import SiteArea from '../../../src/types/SiteArea';
 import SiteAreaContext from './SiteAreaContext';
 import SiteContext from './SiteContext';
-import Tenant from '../../types/Tenant';
+import { StatusCodes } from 'http-status-codes';
+import Tenant from '../../../src/types/Tenant';
 import Utils from '../../../src/utils/Utils';
+import { Voltage } from '../../../src/types/ChargingStation';
 import config from '../../config';
 import { expect } from 'chai';
 import faker from 'faker';
@@ -51,6 +53,7 @@ export default class TenantContext {
     if (!tokenID) {
       tokenID = await this.createRegistrationToken(siteAreaID);
     }
+    // FIXME: define helpers to build the URL
     this.ocpp16 = new OCPPJsonService16(`${config.get('ocpp.json.scheme')}://${config.get('ocpp.json.host')}:${config.get('ocpp.json.port')}/OCPP16/${this.tenant.id}/${tokenID}`, this.ocppRequestHandler);
     this.ocpp15 = new OCPPJsonService15(`${config.get('ocpp.soap.scheme')}://${config.get('ocpp.soap.host')}:${config.get('ocpp.soap.port')}/OCPP15?TenantID=${this.tenant.id}%26Token=${tokenID}`);
   }
@@ -208,6 +211,7 @@ export default class TenantContext {
   /**
    * Add default context user
    * Do not user for newly created users
+   *
    * @param {*} users
    * @memberof TenantContext
    */
@@ -258,7 +262,7 @@ export default class TenantContext {
 
   async createSiteArea(site, chargingStations, siteArea) {
     siteArea.siteID = (site && site.id ? (!siteArea.siteID || siteArea.siteID !== site.id ? site.id : siteArea.siteID) : null);
-    siteArea.chargeBoxIDs = (Array.isArray(chargingStations) && (!siteArea.chargeBoxIDs || siteArea.chargeBoxIDs.length === 0) ? chargingStations.map((chargingStation) => chargingStation.id) : []);
+    siteArea.chargeBoxIDs = (Array.isArray(chargingStations) && Utils.isEmptyArray(siteArea.chargeBoxIDs) ? chargingStations.map((chargingStation) => chargingStation.id) : []);
     const createdSiteArea = await this.centralAdminServerService.createEntity(this.centralAdminServerService.siteAreaApi, siteArea);
     this.context.createdSiteAreas.push(new SiteAreaContext(createdSiteArea, this));
     return createdSiteArea;
@@ -295,7 +299,10 @@ export default class TenantContext {
     createdChargingStation = await this.getAdminCentralServerService().getEntityById(
       this.getAdminCentralServerService().chargingStationApi, chargingStation);
     // Charging Station
-    expect(createdChargingStation.voltage).to.eql(230);
+    expect(createdChargingStation.voltage).to.eql(Voltage.VOLTAGE_230);
+    if (siteArea) {
+      expect(createdChargingStation.siteID).to.eql(siteArea.siteID);
+    }
     // Connectors
     expect(createdChargingStation.connectors.length).to.eql(2,
       `Number of connector of charging station ${createdChargingStation.id} must be 2`);
@@ -378,7 +385,10 @@ export default class TenantContext {
     createdChargingStation = await this.getAdminCentralServerService().getEntityById(
       this.getAdminCentralServerService().chargingStationApi, chargingStation);
     // Charging Station
-    expect(createdChargingStation.voltage).to.eql(230);
+    expect(createdChargingStation.voltage).to.eql(Voltage.VOLTAGE_230);
+    if (siteArea) {
+      expect(createdChargingStation.siteID).to.eql(siteArea.siteID);
+    }
     // Connectors
     expect(createdChargingStation.connectors.length).to.eql(2,
       `Number of connector of charging station ${createdChargingStation.id} must be 2`);
@@ -467,13 +477,16 @@ export default class TenantContext {
     createdChargingStation = await this.getAdminCentralServerService().getEntityById(
       this.getAdminCentralServerService().chargingStationApi, chargingStation);
     // Charging Station
-    expect(createdChargingStation.voltage).to.eql(230);
+    expect(createdChargingStation.voltage).to.eql(Voltage.VOLTAGE_230);
+    if (siteArea) {
+      expect(createdChargingStation.siteID).to.eql(siteArea.siteID);
+    }
     // Connectors
     expect(createdChargingStation.connectors.length).to.eql(2,
       `Number of connector of charging station ${createdChargingStation.id} must be 2`);
     expect(createdChargingStation.connectors[0].power).to.eql(150000,
       `Connector ID 1 of charging station ${createdChargingStation.id} must have 150000 W`);
-    // Expect(createdChargingStation.connectors[0].amperage).to.eql(654,
+    // pragma expect(createdChargingStation.connectors[0].amperage).to.eql(654,
     //   `Connector ID 1 of charging station ${createdChargingStation.id} must have 654 A`);
     expect(createdChargingStation.connectors[0].type).to.eql('CCS',
       `Connector ID 1 of charging station ${createdChargingStation.id} must have CCS connector`);
@@ -487,7 +500,7 @@ export default class TenantContext {
     }
     expect(createdChargingStation.connectors[1].power).to.eql(150000,
       `Connector ID 2 of charging station ${createdChargingStation.id} must have 150000 W`);
-    // Expect(createdChargingStation.connectors[1].amperage).to.eql(654,
+    // pragma expect(createdChargingStation.connectors[1].amperage).to.eql(654,
     //   `Connector ID 2 of charging station ${createdChargingStation.id} must have 654 A`);
     expect(createdChargingStation.connectors[1].type).to.eql('CCS',
       `Connector ID 2 of charging station ${createdChargingStation.id} must have CCS connector`);
@@ -526,7 +539,7 @@ export default class TenantContext {
       description: `Test Token for site area ${siteAreaID}`,
       siteAreaID: siteAreaID
     });
-    expect(registrationTokenResponse.status).eq(200);
+    expect(registrationTokenResponse.status).eq(StatusCodes.OK);
     expect(registrationTokenResponse.data).not.null;
     expect(registrationTokenResponse.data.id).not.null;
     return registrationTokenResponse.data.id;
@@ -534,7 +547,7 @@ export default class TenantContext {
 
   async getRegistrationToken(siteAreaID: string): Promise<RegistrationToken> {
     const registrationTokenResponse = await this.centralAdminServerService.registrationApi.readAll({ SiteAreaID: siteAreaID });
-    expect(registrationTokenResponse.status).eq(200);
+    expect(registrationTokenResponse.status).eq(StatusCodes.OK);
     expect(registrationTokenResponse.data).not.null;
     expect(registrationTokenResponse.data.id).not.null;
     if (registrationTokenResponse.data.result.length !== 0) {

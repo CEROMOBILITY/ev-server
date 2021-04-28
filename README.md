@@ -2,7 +2,7 @@
 
 ## Summary
 
-This application server (NodeJs) collects and stores the data (MongoDB) received from the Charging Stations via the OCPP protocol and exposes a REST service to an Angular front-end dashboard application ([EVSE-Dashboard](https://github.com/LucasBrazi06/ev-dashboard)).
+This application server (NodeJs) collects and stores the data (MongoDB) received from the Charging Stations via the OCPP protocol and exposes a REST service to an Angular front-end dashboard application ([EVSE-Dashboard](https://github.com/sap-labs-france/ev-dashboard)).
 
 The application features:
 
@@ -17,7 +17,6 @@ The application features:
 ## Installation
 
 * Install NodeJS: https://nodejs.org/ (install the LTS version)
-* Install Python version 2.7 (not the version 3.7!)
 * Install MongoDB: https://www.mongodb.com/
 * Clone this GitHub project
 * Install required build tools:
@@ -36,14 +35,14 @@ The application features:
 * On Windows with **chocolatey** (https://chocolatey.org/), do as an administrator:
 
 ```
-choco install -y nodejs-lts python2 mongodb postman robot3t microsoft-build-tools
+choco install -y nodejs-lts mongodb postman robot3t microsoft-build-tools
 ```
 
 * On Mac OSX with **Homebrew** (https://brew.sh/), do:
 
 ```
 brew tap mongodb/brew
-brew install node mongodb-community@4.2 && brew cask install postman robo-3t
+brew install node mongodb-community@4.2 postman robo-3t
 ```
 
 * Follow the rest of the setup below
@@ -193,8 +192,9 @@ Move this configuration file into the **src** directory.
 
 #### Listen to the Charging Stations
 
-Set the protocol, host and the port which you want the server to listen to (only OCPP SOAP implementation is supported):
+Set the protocol, host and the port which you want the server to listen to:
 
+SOAP (OCPP-S):
 ```
   "CentralSystems": [
     {
@@ -205,12 +205,24 @@ Set the protocol, host and the port which you want the server to listen to (only
     }
   ]
 ```
-There can be several central systems with different protocols but today only http protocol is supported, thus there is no possibility to encrypt the communication between the server and the charging stations for the time being.
 
+JSON (OCPP-J):
+```
+  "CentralSystems": [
+    {
+      "implementation": "json",
+      "protocol": "ws",
+      "host": "localhost",
+      "port": 8010
+    }
+  ]
+```
+
+There can be several central systems with different protocols.
 
 ### The Central Service REST Server (CSRS)
 
-The server also exposes a set of REST services to serve the front-end [Angular Dashboard](https://github.com/LucasBrazi06/ev-dashboard).
+The server also exposes a set of REST services to serve the front-end [Angular Dashboard](https://github.com/sap-labs-france/ev-dashboard).
 
 This application displays the charging stations with their statuses, charging curves, user management...
 
@@ -223,9 +235,9 @@ To set the end point, fill the following information in the **config.json** file
     "protocol": "https",
     "host": "localhost",
     "port": 443,
-    "ssl-key": "ssl/64933587-localhost.key",
-    "ssl-cert": "ssl/64933587-localhost.cert",
-    "ssl-ca": [],
+    "sslKey": "ssl/64933587-localhost.key",
+    "sslCert": "ssl/64933587-localhost.cert",
+    "sslCa": [],
     "userTokenKey": "MySecureKeyToEncodeTokenAuth",
     "userTokenLifetimeHours": 12,
     "userDemoTokenLifetimeDays": 365,
@@ -297,9 +309,8 @@ Edit the following info:
 
 ```
   "Email": {
-    "from": "evse.adm.noreply@gmail.com",
-    "bcc": "",
     "smtp": {
+      "from": "evse.adm.noreply@gmail.com",
       "host": "smtp.gmail.com",
       "port": 465,
       "secure": true,
@@ -367,9 +378,8 @@ Set the following info:
 
 ```
   "Email": {
-    "from": "evse.adm.noreply@gmail.com",
-    "bcc": "",
     "smtp": {
+      "from": "evse.adm.noreply@gmail.com",
       "host": "smtp.gmail.com",
       "port": 465,
       "secure": true,
@@ -420,6 +430,7 @@ Here are the default delivered locales:
       "es_MX",
       "de_DE",
       "pt_PT",
+      "it_IT",
     ]
  },
 ```

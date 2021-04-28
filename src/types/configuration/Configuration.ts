@@ -1,3 +1,4 @@
+import AsyncTaskConfiguration from './AsyncTaskConfiguration';
 import AuthorizationConfiguration from './AuthorizationConfiguration';
 import AxiosConfiguration from './AxiosConfiguration';
 import CentralSystemConfiguration from './CentralSystemConfiguration';
@@ -20,6 +21,8 @@ import NotificationConfiguration from './NotificationConfiguration';
 import OCPIEndpointConfiguration from './OCPIEndpointConfiguration';
 import OCPIServiceConfiguration from './OCPIServiceConfiguration';
 import ODataServiceConfiguration from './ODataServiceConfiguration';
+import OICPEndpointConfiguration from './OICPEndpointConfiguration';
+import OICPServiceConfiguration from './OICPServiceConfiguration';
 import SchedulerConfiguration from './SchedulerConfiguration';
 import StorageConfiguration from './StorageConfiguration';
 import WSClientConfiguration from './WSClientConfiguration';
@@ -32,11 +35,13 @@ export interface Configuration {
   CentralSystems: CentralSystemConfiguration[];
   CentralSystemRestService: CentralSystemRestServiceConfiguration;
   CentralSystemFrontEnd: CentralSystemFrontEndConfiguration;
-  WSDLEndpoint: WSDLEndpointConfiguration;
+  WSDLEndpoint?: WSDLEndpointConfiguration;
   JsonEndpoint: JsonEndpointConfiguration;
   OCPIEndpoint: OCPIEndpointConfiguration;
+  OICPEndpoint: OICPEndpointConfiguration;
   WSClient: WSClientConfiguration;
   OCPIService: OCPIServiceConfiguration;
+  OICPService: OICPServiceConfiguration;
   ODataService: ODataServiceConfiguration;
   Firebase: FirebaseConfiguration;
   Email: EmailConfiguration;
@@ -46,6 +51,7 @@ export interface Configuration {
   ChargingStation: ChargingStationConfiguration;
   Locales?: LocalesConfiguration;
   Scheduler: SchedulerConfiguration;
+  AsyncTask: AsyncTaskConfiguration;
   Logging: LoggingConfiguration;
   HealthCheck?: HealthCheckConfiguration;
   Migration?: MigrationConfiguration;

@@ -1,3 +1,5 @@
+import DynamicAuthorizationDataSource from '../authorization/DynamicAuthorizationDataSource';
+
 export interface AuthorizationDefinition {
   superAdmin: {
     grants: Grant[];
@@ -23,6 +25,18 @@ export interface AuthorizationDefinition {
     grants: Grant[];
     $extend?: any;
   };
+}
+
+export interface AuthorizationResult {
+  authorized: boolean;
+  fields: string[];
+}
+
+export interface AuthorizationFilter {
+  filters: Record<string, any>;
+  projectFields: string[];
+  authorized: boolean;
+  dataSources: Map<DynamicAuthorizationDataSourceName, DynamicAuthorizationDataSource<DynamicAuthorizationDataSourceData>>;
 }
 
 export interface Grant {
@@ -51,6 +65,7 @@ export enum Entity {
   REPORT = 'Report',
   USER = 'User',
   USERS = 'Users',
+  USERS_SITES = 'UsersSites',
   LOGGINGS = 'Loggings',
   LOGGING = 'Logging',
   PRICING = 'Pricing',
@@ -59,8 +74,12 @@ export enum Entity {
   SETTINGS = 'Settings',
   TOKENS = 'Tokens',
   TOKEN = 'Token',
+  ASYNC_TASK = 'AsyncTask',
+  ASYNC_TASKS = 'AsyncTasks',
   OCPI_ENDPOINT = 'OcpiEndpoint',
   OCPI_ENDPOINTS = 'OcpiEndpoints',
+  OICP_ENDPOINT = 'OicpEndpoint',
+  OICP_ENDPOINTS = 'OicpEndpoints',
   CONNECTION = 'Connection',
   CONNECTIONS = 'Connections',
   ASSET = 'Asset',
@@ -80,6 +99,8 @@ export enum Entity {
   NOTIFICATION = 'Notification',
   TAGS = 'Tags',
   TAG = 'Tag',
+  PAYMENT_METHOD = 'PaymentMethod',
+  PAYMENT_METHODS = 'PaymentMethods',
 }
 
 export enum Action {
@@ -91,8 +112,10 @@ export enum Action {
   LOGOUT = 'Logout',
   LOGIN = 'Login',
   LIST = 'List',
+  IN_ERROR = 'InError',
   RESET = 'Reset',
   ASSIGN = 'Assign',
+  UNASSIGN = 'Unassign',
   CLEAR_CACHE = 'ClearCache',
   SYNCHRONIZE = 'Synchronize',
   GET_CONFIGURATION = 'GetConfiguration',
@@ -109,11 +132,15 @@ export enum Action {
   CLEAR_CHARGING_PROFILE = 'ClearChargingProfile',
   GET_DIAGNOSTICS = 'GetDiagnostics',
   UPDATE_FIRMWARE = 'UpdateFirmware',
-  EXPORT_PARAMS = 'ExportParams',
+  EXPORT = 'Export',
   CHANGE_AVAILABILITY = 'ChangeAvailability',
   REFUND_TRANSACTION = 'RefundTransaction',
   SYNCHRONIZE_BILLING_USERS = 'SynchronizeBillingUsers',
   SYNCHRONIZE_BILLING_USER = 'SynchronizeBillingUser',
+  BILLING_SETUP_PAYMENT_METHOD = 'BillingSetupPaymentMethod',
+  BILLING_PAYMENT_METHODS = 'BillingPaymentMethods',
+  BILLING_DELETE_PAYMENT_METHOD = 'BillingDeletePaymentMethod',
+  BILLING_CHARGE_INVOICE = 'BillingChargeInvoice',
   CHECK_CONNECTION = 'CheckConnection',
   RETRIEVE_CONSUMPTION = 'RetrieveConsumption',
   PING = 'Ping',
@@ -121,6 +148,7 @@ export enum Action {
   REGISTER = 'Register',
   TRIGGER_JOB = 'TriggerJob',
   DOWNLOAD = 'Download',
+  IMPORT = 'Import'
 }
 
 export interface AuthorizationContext {
@@ -137,4 +165,43 @@ export interface AuthorizationContext {
   companies?: string[];
   asset?: string;
   assets?: string[];
+  filters?: DynamicAuthorizationFilterName[];
+}
+
+export interface AuthorizationActions {
+  canRead?: boolean;
+  canCreate?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
+}
+
+export interface SiteAuthorizationActions extends AuthorizationActions {
+  canAssignUsers?: boolean;
+  canUnassignUsers?: boolean;
+}
+
+export enum DynamicAuthorizationFilterName {
+  ASSIGNED_SITES_COMPANIES = 'AssignedSitesCompanies',
+  ASSIGNED_SITES = 'AssignedSites',
+  SITES_ADMIN = 'SitesAdmin',
+}
+
+export enum DynamicAuthorizationDataSourceName {
+  ASSIGNED_SITES_COMPANIES = 'AssignedSitesCompanies',
+  ASSIGNED_SITES = 'AssignedSites',
+  SITES_ADMIN = 'SitesAdmin',
+}
+
+export interface DynamicAuthorizationDataSourceData {}
+
+export interface AssignedSitesCompaniesDynamicAuthorizationDataSourceData extends DynamicAuthorizationDataSourceData {
+  companyIDs?: string[];
+}
+
+export interface AssignedSitesDynamicAuthorizationDataSourceData extends DynamicAuthorizationDataSourceData {
+  siteIDs?: string[];
+}
+
+export interface SitesAdminDynamicAuthorizationDataSourceData extends DynamicAuthorizationDataSourceData {
+  siteIDs?: string[];
 }

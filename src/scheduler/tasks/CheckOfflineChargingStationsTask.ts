@@ -23,8 +23,7 @@ export default class CheckOfflineChargingStationsTask extends SchedulerTask {
     if (await LockingManager.acquire(offlineChargingStationLock)) {
       try {
         // Compute the date some minutes ago
-        const offlineSince = moment().subtract(
-          Configuration.getChargingStationConfig().maxLastSeenIntervalSecs, 'seconds').toDate();
+        const offlineSince = moment().subtract(Configuration.getChargingStationConfig().maxLastSeenIntervalSecs, 'seconds').toDate();
         const chargingStations = await ChargingStationStorage.getChargingStations(tenant.id, {
           issuer: true,
           offlineSince
@@ -43,7 +42,7 @@ export default class CheckOfflineChargingStationsTask extends SchedulerTask {
             }
             // Charging Station is still connected: ignore it
             if (ocppHeartbeatConfiguration) {
-              Logging.logInfo({
+              await Logging.logInfo({
                 tenantID: tenant.id,
                 source: chargingStation.id,
                 action: ServerAction.OFFLINE_CHARGING_STATION,
@@ -76,7 +75,7 @@ export default class CheckOfflineChargingStationsTask extends SchedulerTask {
         }
       } catch (error) {
         // Log error
-        Logging.logActionExceptionMessage(tenant.id, ServerAction.OFFLINE_CHARGING_STATION, error);
+        await Logging.logActionExceptionMessage(tenant.id, ServerAction.OFFLINE_CHARGING_STATION, error);
       } finally {
         // Release the lock
         await LockingManager.release(offlineChargingStationLock);

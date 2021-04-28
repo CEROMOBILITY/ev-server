@@ -5,6 +5,7 @@ import CreatedUpdatedProps from './CreatedUpdatedProps';
 import { InactivityStatus } from './Transaction';
 import { KeyValue } from './GlobalType';
 import { OCPIEvse } from './ocpi/OCPIEvse';
+import { OICPIdentification } from './oicp/OICPIdentification';
 import SiteArea from './SiteArea';
 import User from './User';
 
@@ -18,6 +19,7 @@ export default interface ChargingStation extends CreatedUpdatedProps {
   issuer: boolean;
   public: boolean;
   siteAreaID?: string;
+  siteID?: string;
   chargePointSerialNumber: string;
   chargePointModel: string;
   chargeBoxSerialNumber: string;
@@ -36,6 +38,7 @@ export default interface ChargingStation extends CreatedUpdatedProps {
   deleted: boolean;
   inactive: boolean;
   forceInactive: boolean;
+  manualConfiguration?: boolean;
   lastReboot: Date;
   chargingStationURL: string;
   maximumPower: number;
@@ -52,9 +55,11 @@ export default interface ChargingStation extends CreatedUpdatedProps {
   ocppStandardParameters?: KeyValue[];
   ocppVendorParameters?: KeyValue[];
   distanceMeters?: number;
-  ocpiData?: {
-    evse?: OCPIEvse;
-  };
+  ocpiData?: ChargingStationOcpiData;
+}
+
+export interface ChargingStationOcpiData {
+  evses?: OCPIEvse[];
 }
 
 export interface ChargingStationQRCode {
@@ -67,7 +72,8 @@ export interface ChargingStationQRCode {
 
 export enum ChargingStationEndpoint {
   SCP = 'scp',
-  AWS = 'aws'
+  SCP_QA = 'scpqa',
+  AWS = 'aws',
 }
 
 export interface TemplateUpdate {
@@ -79,6 +85,7 @@ export interface TemplateUpdate {
 }
 
 export interface TemplateUpdateResult {
+  chargingStationUpdated: boolean;
   technicalUpdated: boolean;
   capabilitiesUpdated: boolean;
   ocppStandardUpdated: boolean;
@@ -107,7 +114,7 @@ export enum Command {
 }
 
 export enum StaticLimitAmps {
-  MIN_LIMIT_PER_PHASE = 13,
+  MIN_LIMIT_PER_PHASE = 6,
 }
 
 export interface Connector {
@@ -150,6 +157,7 @@ export interface RemoteAuthorization {
   connectorId: number;
   tagId: string;
   timestamp: Date;
+  oicpIdentification?: OICPIdentification;
 }
 
 export interface ConnectorCurrentLimit {
@@ -190,6 +198,7 @@ export interface ChargePoint {
 }
 
 export enum Voltage {
+  VOLTAGE_400 = 400,
   VOLTAGE_230 = 230,
   VOLTAGE_110 = 110,
 }
@@ -259,7 +268,7 @@ export interface ChargingStationCapabilities {
   supportReservation: boolean;
   supportRFIDCard: boolean;
   supportFirmwareUpgrade?: boolean;
-  supportConnectorIsSlave?: boolean;
+  supportSlave?: boolean;
 }
 
 export interface ChargingStationOcppParameters {
@@ -284,7 +293,16 @@ export type OCPPParams = {
 
 export enum ChargerVendor {
   BENDER = 'Bender GmbH Co. KG',
+  DBTCEV = 'DBT-CEV',
   EBEE = 'Ebee',
+  ENPLUS = 'EN+',
+  EXADYS = 'EXADYS',
+  EVBOX = 'EV-BOX',
+  EVMETER = 'EV Meter',
+  INNOGY = 'innogy',
+  INGETEAM = 'INGETEAM',
+  IES = 'IES',
+  WALLBOX_CHARGERS = 'Wall Box Chargers',
   SCHNEIDER = 'Schneider Electric',
   WEBASTO = 'Webasto',
   DELTA = 'DELTA',
@@ -292,5 +310,7 @@ export enum ChargerVendor {
   LEGRAND = 'Legrand',
   ATESS = 'ATESS',
   MENNEKES = 'MENNEKES',
+  KEBA = 'Keba AG',
   SAP_LABS_FRANCE = 'SAP Labs France Caen',
+  CIRCONTROL = 'CIRCONTROL',
 }

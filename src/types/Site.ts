@@ -3,8 +3,9 @@ import Company from './Company';
 import ConnectorStats from './ConnectorStats';
 import CreatedUpdatedProps from './CreatedUpdatedProps';
 import SiteArea from './SiteArea';
+import { SiteAuthorizationActions } from './Authorization';
 
-export default interface Site extends CreatedUpdatedProps {
+export default interface Site extends CreatedUpdatedProps, SiteAuthorizationActions {
   id: string;
   name: string;
   issuer: boolean;
@@ -21,6 +22,7 @@ export default interface Site extends CreatedUpdatedProps {
 
 export interface SiteUser {
   site: Site;
+  siteID?: string;
   userID: string;
   siteAdmin: boolean;
   siteOwner: boolean;

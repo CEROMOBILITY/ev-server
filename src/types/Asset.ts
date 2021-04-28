@@ -8,7 +8,10 @@ export default interface Asset extends CreatedUpdatedProps, AbstractCurrentConsu
   name: string;
   siteAreaID: string;
   siteArea?: SiteArea;
-  assetType: string;
+  siteID?: string;
+  assetType: AssetType;
+  fluctuationPercent: number;
+  staticValueWatt: number;
   coordinates: number[];
   issuer: boolean;
   image?: string;
@@ -16,6 +19,13 @@ export default interface Asset extends CreatedUpdatedProps, AbstractCurrentConsu
   connectionID?: string;
   meterID?: string;
   values: Consumption[],
+  excludeFromSmartCharging?: boolean,
+}
+
+export enum AssetType {
+  CONSUMPTION = 'CO',
+  PRODUCTION = 'PR',
+  CONSUMPTION_AND_PRODUCTION = 'CO-PR',
 }
 
 export enum SchneiderProperty {
@@ -31,4 +41,11 @@ export enum SchneiderProperty {
   POWER_ACTIVE_L2 = 'PActive_Ph2',
   POWER_ACTIVE_L3 = 'PActive_Ph3',
   POWER_ACTIVE = 'PActive_Tot',
+}
+
+export enum IothinkProperty {
+  POWER_ACTIVE = 'Puissance_active_totale',
+  POWER_L1 = 'Puissance_active_de_phase_1',
+  POWER_L2 = 'Puissance_active_de_phase_2',
+  POWER_L3 = 'Puissance_active_de_phase_3',
 }

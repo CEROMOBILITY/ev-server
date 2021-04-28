@@ -252,11 +252,28 @@ const config = convict({
     }
   },
   billing: {
-    currency: {
-      doc: 'billing currency',
+    isTransactionBillingActivated: {
+      doc: 'Activates the billing of transactions feature',
+      format: Boolean,
+      default: true
+    },
+    immediateBillingAllowed: {
+      doc: 'Allow immediate billing',
+      format: Boolean,
+      default: true
+    },
+    periodicBillingAllowed: {
+      doc: 'Allow periodic billing',
+      format: Boolean,
+      default: false
+    },
+    taxID: {
+      doc: 'taxes to apply by default',
       format: String,
       default: ''
-    },
+    }
+  },
+  stripe: {
     url: {
       doc: 'Billing provider dashboard',
       format: String,
@@ -272,26 +289,6 @@ const config = convict({
       format: String,
       default: ''
     },
-    noCardAllowed: {
-      doc: 'Allow no card user',
-      format: Boolean,
-      default: ''
-    },
-    advanceBillingAllowed: {
-      doc: 'Allow advance billing',
-      format: Boolean,
-      default: ''
-    },
-    immediateBillingAllowed: {
-      doc: 'Allow immediate billing',
-      format: Boolean,
-      default: ''
-    },
-    periodicBillingAllowed: {
-      doc: 'Allow periodic billing',
-      format: Boolean,
-      default: ''
-    }
   },
   smartCharging: {
     optimizerUrl: {
@@ -309,6 +306,21 @@ const config = convict({
       format: String,
       default: ''
     },
+    stickyLimitation: {
+      doc: 'Sticky limitation',
+      format: Boolean,
+      default: ''
+    },
+    limitBufferDC: {
+      doc: 'Limit buffer dc',
+      format: Number,
+      default: ''
+    },
+    limitBufferAC: {
+      doc: 'Limit buffer ac',
+      format: Number,
+      default: ''
+    }
   }
 });
 

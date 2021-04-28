@@ -6,10 +6,10 @@ import sanitize from 'mongo-sanitize';
 
 export default class TransactionSecurity {
   public static filterTransactionsRefund(request: any): HttpTransactionsRefundRequest {
-    if (!request.transactionIds) {
+    if (!Utils.objectHasProperty(request, 'transactionIds') || Utils.isEmptyArray(request.transactionIds)) {
       return { transactionIds: [] };
     }
-    return { transactionIds: request.transactionIds.map(sanitize) };
+    return { transactionIds:  request.transactionIds.map(sanitize) };
   }
 
   public static filterAssignTransactionsToUser(request: any): HttpAssignTransactionsToUserRequest {
@@ -49,25 +49,8 @@ export default class TransactionSecurity {
     };
   }
 
-  public static filterTransactionsActiveRequest(request: any): HttpTransactionsRequest {
-    const filteredRequest: HttpTransactionsRequest = {} as HttpTransactionsRequest;
-    if (request.Issuer) {
-      filteredRequest.Issuer = UtilsSecurity.filterBoolean(request.Issuer);
-    }
-    filteredRequest.ChargeBoxID = sanitize(request.ChargeBoxID);
-    filteredRequest.ConnectorId = sanitize(request.ConnectorId);
-    filteredRequest.SiteAreaID = sanitize(request.SiteAreaID);
-    filteredRequest.Search = sanitize(request.Search);
-    filteredRequest.SiteID = sanitize(request.SiteID);
-    filteredRequest.UserID = request.UserID ? sanitize(request.UserID) : null;
-    UtilsSecurity.filterSkipAndLimit(request, filteredRequest);
-    UtilsSecurity.filterSort(request, filteredRequest);
-    return filteredRequest;
-  }
-
   public static filterTransactionsRequest(request: any): HttpTransactionsRequest {
     const filteredRequest = {} as HttpTransactionsRequest;
-    // Handle picture
     if (Utils.objectHasProperty(request, 'Issuer')) {
       filteredRequest.Issuer = UtilsSecurity.filterBoolean(request.Issuer);
     }
@@ -81,17 +64,22 @@ export default class TransactionSecurity {
     filteredRequest.InactivityStatus = sanitize(request.InactivityStatus);
     filteredRequest.RefundStatus = sanitize(request.RefundStatus);
     filteredRequest.MinimalPrice = sanitize(request.MinimalPrice);
-    if (request.Statistics) {
+    filteredRequest.ConnectorID = sanitize(request.ConnectorID);
+    if (Utils.objectHasProperty(request, 'Statistics')) {
       filteredRequest.Statistics = sanitize(request.Statistics);
     }
-    if (request.UserID) {
+    if (Utils.objectHasProperty(request, 'UserID')) {
       filteredRequest.UserID = sanitize(request.UserID);
     }
-    if (request.ReportIDs) {
+    if (Utils.objectHasProperty(request, 'ReportIDs')) {
       filteredRequest.ReportIDs = sanitize(request.ReportIDs);
+    }
+    if (Utils.objectHasProperty(request, 'Status')) {
+      filteredRequest.Status = sanitize(request.Status);
     }
     UtilsSecurity.filterSkipAndLimit(request, filteredRequest);
     UtilsSecurity.filterSort(request, filteredRequest);
+    UtilsSecurity.filterProject(request, filteredRequest);
     return filteredRequest;
   }
 
@@ -105,7 +93,8 @@ export default class TransactionSecurity {
     filteredRequest.SiteAreaID = sanitize(request.SiteAreaID);
     filteredRequest.Search = sanitize(request.Search);
     filteredRequest.ErrorType = sanitize(request.ErrorType);
-    if (request.UserID) {
+    filteredRequest.ConnectorID = sanitize(request.ConnectorID);
+    if (Utils.objectHasProperty(request, 'UserID')) {
       filteredRequest.UserID = sanitize(request.UserID);
     }
     UtilsSecurity.filterSkipAndLimit(request, filteredRequest);
@@ -122,18 +111,6 @@ export default class TransactionSecurity {
     if (Utils.objectHasProperty(request, 'LoadAllConsumptions')) {
       filteredRequest.LoadAllConsumptions = Utils.convertToBoolean(sanitize(request.LoadAllConsumptions));
     }
-    return filteredRequest;
-  }
-
-  public static filterChargingStationTransactionsRequest(request: any): HttpTransactionsRequest {
-    const filteredRequest: HttpTransactionsRequest = {} as HttpTransactionsRequest;
-    // Set
-    filteredRequest.ChargeBoxID = sanitize(request.ChargeBoxID);
-    filteredRequest.ConnectorId = sanitize(request.ConnectorId);
-    filteredRequest.StartDateTime = sanitize(request.StartDateTime);
-    filteredRequest.EndDateTime = sanitize(request.EndDateTime);
-    UtilsSecurity.filterSkipAndLimit(request, filteredRequest);
-    UtilsSecurity.filterSort(request, filteredRequest);
     return filteredRequest;
   }
 }

@@ -1,4 +1,4 @@
-import { AnalyticsSettings, AnalyticsSettingsType, AssetSettings, AssetSettingsType, BillingSettings, BillingSettingsType, PricingSettings, PricingSettingsType, RefundSettings, RefundSettingsType, RoamingSettings, SettingDB, SmartChargingSettings, SmartChargingSettingsType } from '../../types/Setting';
+import { AnalyticsSettings, AnalyticsSettingsType, AssetSettings, AssetSettingsType, BillingSettings, BillingSettingsType, CryptoSetting, CryptoSettings, CryptoSettingsType, PricingSettings, PricingSettingsType, RefundSettings, RefundSettingsType, RoamingSettings, SettingDB, SmartChargingSettings, SmartChargingSettingsType, TechnicalSettings, UserSettings, UserSettingsType } from '../../types/Setting';
 import global, { FilterParams } from '../../types/GlobalType';
 
 import BackendError from '../../exception/BackendError';
@@ -55,7 +55,8 @@ export default class SettingStorage {
       _id: settingFilter._id,
       identifier: settingToSave.identifier,
       content: settingToSave.content,
-      sensitiveData: settingToSave.sensitiveData
+      sensitiveData: settingToSave.sensitiveData,
+      backupSensitiveData: settingToSave.backupSensitiveData
     };
     DatabaseUtils.addLastChangedCreatedProps(settingMDB, settingToSave);
     // Modify
@@ -64,7 +65,7 @@ export default class SettingStorage {
       { $set: settingMDB },
       { upsert: true, returnOriginal: false });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveSetting', uniqueTimerID, settingMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveSetting', uniqueTimerID, settingMDB);
     // Create
     return settingFilter._id.toHexString();
   }
@@ -82,12 +83,32 @@ export default class SettingStorage {
       // ID
       ocpiSettings.id = settings.result[0].id;
       ocpiSettings.sensitiveData = settings.result[0].sensitiveData;
+      ocpiSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       // OCPI
       if (config.ocpi) {
         ocpiSettings.ocpi = config.ocpi;
       }
     }
     return ocpiSettings;
+  }
+
+  public static async getOICPSettings(tenantID: string): Promise<RoamingSettings> {
+    const oicpSettings = {
+      identifier: TenantComponents.OICP,
+    } as RoamingSettings;
+    // Get the oicp settings
+    const settings = await SettingStorage.getSettings(tenantID, { identifier: TenantComponents.OICP }, Constants.DB_PARAMS_MAX_LIMIT);
+    if (settings && settings.count > 0 && settings.result[0].content) {
+      const config = settings.result[0].content;
+      // ID
+      oicpSettings.id = settings.result[0].id;
+      oicpSettings.sensitiveData = settings.result[0].sensitiveData;
+      // OICP
+      if (config.oicp) {
+        oicpSettings.oicp = config.oicp;
+      }
+    }
+    return oicpSettings;
   }
 
   public static async getAnalyticsSettings(tenantID: string): Promise<AnalyticsSettings> {
@@ -102,6 +123,7 @@ export default class SettingStorage {
       const config = settings.result[0].content;
       analyticsSettings.id = settings.result[0].id;
       analyticsSettings.sensitiveData = settings.result[0].sensitiveData;
+      analyticsSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       // SAP Analytics
       if (config.sac) {
         analyticsSettings.type = AnalyticsSettingsType.SAC;
@@ -126,6 +148,7 @@ export default class SettingStorage {
       const config = settings.result[0].content;
       assetSettings.id = settings.result[0].id;
       assetSettings.sensitiveData = settings.result[0].sensitiveData;
+      assetSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       // Asset
       if (config.asset) {
         assetSettings.type = AssetSettingsType.ASSET;
@@ -148,6 +171,7 @@ export default class SettingStorage {
       const config = settings.result[0].content;
       refundSettings.id = settings.result[0].id;
       refundSettings.sensitiveData = settings.result[0].sensitiveData;
+      refundSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       if (config.concur) {
         refundSettings.type = RefundSettingsType.CONCUR;
         refundSettings.concur = {
@@ -180,6 +204,7 @@ export default class SettingStorage {
       // ID
       pricingSettings.id = settings.result[0].id;
       pricingSettings.sensitiveData = settings.result[0].sensitiveData;
+      pricingSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       // Simple price
       if (config.simple) {
         pricingSettings.type = PricingSettingsType.SIMPLE;
@@ -217,13 +242,17 @@ export default class SettingStorage {
       // ID
       smartChargingSettings.id = settings.result[0].id;
       smartChargingSettings.sensitiveData = settings.result[0].sensitiveData;
+      smartChargingSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
       // SAP Smart Charging
       if (config.sapSmartCharging) {
         smartChargingSettings.type = SmartChargingSettingsType.SAP_SMART_CHARGING;
         smartChargingSettings.sapSmartCharging = {
-          optimizerUrl: config.sapSmartCharging.optimizerUrl,
-          user: config.sapSmartCharging.user,
-          password: config.sapSmartCharging.password,
+          optimizerUrl: config.sapSmartCharging.optimizerUrl ? config.sapSmartCharging.optimizerUrl : '',
+          user: config.sapSmartCharging.user ? config.sapSmartCharging.user : '',
+          password: config.sapSmartCharging.password ? config.sapSmartCharging.password : '',
+          stickyLimitation: config.sapSmartCharging.stickyLimitation ? config.sapSmartCharging.stickyLimitation : false,
+          limitBufferDC: config.sapSmartCharging.limitBufferDC ? config.sapSmartCharging.limitBufferDC : 0,
+          limitBufferAC: config.sapSmartCharging.limitBufferAC ? config.sapSmartCharging.limitBufferAC : 0,
         };
       }
     }
@@ -233,8 +262,7 @@ export default class SettingStorage {
   public static async saveBillingSettings(tenantID: string, billingSettingsToSave: BillingSettings): Promise<string> {
     const settings = await SettingStorage.getBillingSettings(tenantID);
     if (settings.type === BillingSettingsType.STRIPE) {
-      if (!billingSettingsToSave.stripe.secretKey ||
-          (!billingSettingsToSave.stripe.immediateBillingAllowed && billingSettingsToSave.stripe.periodicBillingAllowed && !billingSettingsToSave.stripe.advanceBillingAllowed)) {
+      if (!billingSettingsToSave.stripe.secretKey) {
         throw new BackendError({
           source: Constants.CENTRAL_SERVER,
           module: MODULE_NAME,
@@ -248,8 +276,10 @@ export default class SettingStorage {
       id: billingSettingsToSave.id,
       identifier: billingSettingsToSave.identifier,
       sensitiveData: billingSettingsToSave.sensitiveData,
+      backupSensitiveData: billingSettingsToSave.backupSensitiveData,
       lastChangedOn: new Date(),
       content: {
+        billing: billingSettingsToSave.billing,
         stripe: billingSettingsToSave.stripe
       },
     } as SettingDB;
@@ -268,42 +298,82 @@ export default class SettingStorage {
       const config = settings.result[0].content;
       billingSettings.id = settings.result[0].id;
       billingSettings.sensitiveData = settings.result[0].sensitiveData;
-      // Currency
-      const pricingSettings = await SettingStorage.getPricingSettings(tenantID);
-      let currency = 'EUR';
-      if (pricingSettings) {
-        if (pricingSettings.simple) {
-          currency = pricingSettings.simple.currency;
-        } else if (pricingSettings.convergentCharging) {
-          if (pricingSettings.convergentCharging['currency']) {
-            currency = pricingSettings.convergentCharging['currency'];
-          }
-        }
+      billingSettings.backupSensitiveData = settings.result[0].backupSensitiveData;
+      // Billing Common Properties
+      if (config.billing) {
+        const { isTransactionBillingActivated, immediateBillingAllowed, periodicBillingAllowed, taxID, usersLastSynchronizedOn } = config.billing;
+        billingSettings.billing = {
+          isTransactionBillingActivated,
+          immediateBillingAllowed,
+          periodicBillingAllowed,
+          usersLastSynchronizedOn,
+          taxID,
+        };
       }
-      // Billing type
+      // Billing Concrete Implementation Properties
       if (config.stripe) {
         billingSettings.type = BillingSettingsType.STRIPE;
+        const { url, publicKey, secretKey } = config.stripe;
         billingSettings.stripe = {
-          url: config.stripe.url ? config.stripe.url : '',
-          publicKey: config.stripe.publicKey ? config.stripe.publicKey : '',
-          secretKey: config.stripe.secretKey ? config.stripe.secretKey : '',
-          currency: currency,
-          noCardAllowed: config.stripe.noCardAllowed ? config.stripe.noCardAllowed : false,
-          advanceBillingAllowed: config.stripe.advanceBillingAllowed ? config.stripe.advanceBillingAllowed : false,
-          immediateBillingAllowed: config.stripe.immediateBillingAllowed ? config.stripe.immediateBillingAllowed : false,
-          periodicBillingAllowed: config.stripe.periodicBillingAllowed ? config.stripe.periodicBillingAllowed : false,
-          usersLastSynchronizedOn: config.stripe.usersLastSynchronizedOn ? config.stripe.usersLastSynchronizedOn : new Date(0),
-          invoicesLastSynchronizedOn: config.stripe.invoicesLastSynchronizedOn ? config.stripe.invoicesLastSynchronizedOn : new Date(0),
-          taxID: config.stripe.taxID ? (config.stripe.taxID !== 'none' ? config.stripe.taxID : null) : null,
+          url,
+          publicKey,
+          secretKey,
         };
       }
       return billingSettings;
     }
   }
 
+  public static async getCryptoSettings(tenantID: string): Promise<CryptoSettings> {
+    // Get the Crypto Key settings
+    const settings = await SettingStorage.getSettings(tenantID,
+      { identifier: TechnicalSettings.CRYPTO },
+      Constants.DB_PARAMS_MAX_LIMIT);
+    if (settings.count > 0) {
+      const cryptoSetting = {
+        key: settings.result[0].content.crypto.key,
+        keyProperties: {
+          blockCypher: settings.result[0].content.crypto.keyProperties.blockCypher,
+          blockSize: settings.result[0].content.crypto.keyProperties.blockSize,
+          operationMode: settings.result[0].content.crypto.keyProperties.operationMode,
+        },
+        migrationToBeDone: settings.result[0].content.crypto.migrationToBeDone
+      } as CryptoSetting;
+      if (settings.result[0].content.crypto.formerKey) {
+        cryptoSetting.formerKey = settings.result[0].content.crypto.formerKey;
+        cryptoSetting.formerKeyProperties = {
+          blockCypher: settings.result[0].content.crypto.formerKeyProperties?.blockCypher,
+          blockSize: settings.result[0].content.crypto.formerKeyProperties?.blockSize,
+          operationMode: settings.result[0].content.crypto.formerKeyProperties?.operationMode,
+        };
+      }
+      return {
+        id: settings.result[0].id,
+        identifier: TechnicalSettings.CRYPTO,
+        type: CryptoSettingsType.CRYPTO,
+        crypto: cryptoSetting
+      };
+    }
+  }
+
+  public static async getUserSettings(tenantID: string): Promise<UserSettings> {
+    let userSettings: UserSettings;
+    // Get the user settings
+    const settings = await SettingStorage.getSettings(tenantID, { identifier: TechnicalSettings.USER }, Constants.DB_PARAMS_SINGLE_RECORD);
+    if (settings.count > 0) {
+      userSettings = {
+        id: settings.result[0].id,
+        identifier: TechnicalSettings.USER,
+        type: UserSettingsType.USER,
+        user: settings.result[0].content.user,
+      };
+    }
+    return userSettings;
+  }
+
   public static async getSettings(tenantID: string,
-    params: {identifier?: string; settingID?: string, dateFrom?: Date, dateTo?: Date},
-    dbParams: DbParams, projectFields?: string[]): Promise<DataResult<SettingDB>> {
+      params: {identifier?: string; settingID?: string, dateFrom?: Date, dateTo?: Date},
+      dbParams: DbParams, projectFields?: string[]): Promise<DataResult<SettingDB>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getSettings');
     // Check Tenant
@@ -364,7 +434,7 @@ export default class SettingStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getSettings', uniqueTimerID, settingsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getSettings', uniqueTimerID, settingsMDB);
     // Ok
     return {
       count: (settingsCountMDB.length > 0 ? settingsCountMDB[0].count : 0),
@@ -381,6 +451,36 @@ export default class SettingStorage {
     await global.database.getCollection<any>(tenantID, 'settings')
       .findOneAndDelete({ '_id': Utils.convertToObjectID(id) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteSetting', uniqueTimerID, { id });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteSetting', uniqueTimerID, { id });
+  }
+
+  public static async saveUserSettings(tenantID: string, userSettingToSave: UserSettings): Promise<void> {
+    // Build internal structure
+    const settingsToSave = {
+      id: userSettingToSave.id,
+      identifier: TechnicalSettings.USER,
+      lastChangedOn: new Date(),
+      content: {
+        type: UserSettingsType.USER,
+        user: userSettingToSave.user
+      },
+    } as SettingDB;
+    // Save
+    await SettingStorage.saveSettings(tenantID, settingsToSave);
+  }
+
+  public static async saveCryptoSettings(tenantID: string, cryptoSettingsToSave: CryptoSettings): Promise<void> {
+    // Build internal structure
+    const settingsToSave = {
+      id: cryptoSettingsToSave.id,
+      identifier: TechnicalSettings.CRYPTO,
+      lastChangedOn: new Date(),
+      content: {
+        type: CryptoSettingsType.CRYPTO,
+        crypto: cryptoSettingsToSave.crypto
+      },
+    } as SettingDB;
+    // Save
+    await SettingStorage.saveSettings(tenantID, settingsToSave);
   }
 }

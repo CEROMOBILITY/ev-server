@@ -51,13 +51,12 @@ export default class UpdateChargingStationStaticLimitationTask extends Migration
             const amperageChargePointMax = Utils.getChargingStationAmperage(chargingStation, chargePoint);
             try {
               // Call the limitation
-              const result = await chargingStationVendor.setStaticPowerLimitation(tenant.id, chargingStation,
-                chargePoint, amperageChargePointMax);
+              const result = await chargingStationVendor.setStaticPowerLimitation(tenant.id, chargingStation, chargePoint, amperageChargePointMax);
               if (result.status === OCPPConfigurationStatus.ACCEPTED || result.status === OCPPConfigurationStatus.REBOOT_REQUIRED) {
                 chargePointUpdated = true;
                 updated++;
               } else {
-                Logging.logError({
+                await Logging.logError({
                   tenantID: tenant.id,
                   action: ServerAction.UPDATE_CHARGING_STATION_WITH_TEMPLATE,
                   module: MODULE_NAME, method: 'initChargingStationLimitAmps',
@@ -66,7 +65,7 @@ export default class UpdateChargingStationStaticLimitationTask extends Migration
                 });
               }
             } catch (error) {
-              Logging.logError({
+              await Logging.logError({
                 tenantID: tenant.id,
                 action: ServerAction.UPDATE_CHARGING_STATION_WITH_TEMPLATE,
                 module: MODULE_NAME, method: 'initChargingStationLimitAmps',
@@ -100,11 +99,11 @@ export default class UpdateChargingStationStaticLimitationTask extends Migration
       }
     }
     if (updated > 0) {
-      Logging.logDebug({
+      await Logging.logDebug({
         tenantID: tenant.id,
         action: ServerAction.UPDATE_CHARGING_STATION_WITH_TEMPLATE,
         module: MODULE_NAME, method: 'cleanUpChargingStationDBProps',
-        message: `${updated} Charging Stations amperage limit has been updated in Tenant '${tenant.name}'`
+        message: `${updated} Charging Stations amperage limit has been updated in Tenant ${Utils.buildTenantName(tenant)}`
       });
     }
   }

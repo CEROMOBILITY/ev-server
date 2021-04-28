@@ -1,9 +1,11 @@
 import Address from './Address';
+import { AuthorizationActions } from './Authorization';
 import { BillingUserData } from './Billing';
 import CreatedUpdatedProps from './CreatedUpdatedProps';
+import { ImportStatus } from './GlobalType';
 import UserNotifications from './UserNotifications';
 
-export default interface User extends CreatedUpdatedProps {
+export default interface User extends CreatedUpdatedProps, AuthorizationActions {
   id: string;
   issuer: boolean;
   name: string;
@@ -21,7 +23,6 @@ export default interface User extends CreatedUpdatedProps {
   notifications?: UserNotifications;
   iNumber?: string;
   costCenter?: string;
-  deleted: boolean;
   eulaAcceptedHash: string;
   eulaAcceptedVersion: number;
   eulaAcceptedOn: Date;
@@ -36,10 +37,12 @@ export default interface User extends CreatedUpdatedProps {
   mobileToken: string;
   mobileLastChangedOn: Date;
   lastSelectedCarID?: string;
+  authorizationID?: string;
 }
 
 export interface UserSite {
   user: User;
+  userID?: string;
   siteID: string;
   siteAdmin: boolean;
   siteOwner: boolean;
@@ -51,6 +54,17 @@ export interface UserCar extends CreatedUpdatedProps {
   carID: string;
   default?: boolean;
   owner?: boolean;
+}
+
+export interface ImportedUser {
+  id?: string;
+  name: string;
+  firstName: string;
+  email: string;
+  importedBy?: string;
+  importedOn?: Date;
+  status?: ImportStatus
+  errorDescription?: string;
 }
 
 export enum UserStatus {
@@ -67,4 +81,10 @@ export enum UserRole {
   BASIC = 'B',
   DEMO = 'D',
 }
+
+export const UserRequiredImportProperties = [
+  'email',
+  'firstName',
+  'name'
+];
 

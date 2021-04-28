@@ -1,9 +1,10 @@
-import { ConnectorType, CurrentType, PhaseAssignmentToGrid } from '../ChargingStation';
+import { ChargePoint, ConnectorType, CurrentType, PhaseAssignmentToGrid, Voltage } from '../ChargingStation';
 
+import HttpByIDRequest from './HttpByIDRequest';
 import HttpDatabaseRequest from './HttpDatabaseRequest';
 
 export interface HttpTriggerSmartChargingRequest {
-  siteAreaID: string;
+  SiteAreaID: string;
 }
 
 export interface HttpChargingStationLimitPowerRequest {
@@ -15,7 +16,7 @@ export interface HttpChargingStationLimitPowerRequest {
 
 export interface HttpChargingProfilesRequest extends HttpDatabaseRequest {
   Search?: string;
-  ChargeBoxID?: string;
+  ChargingStationID?: string;
   ConnectorID?: number;
   WithChargingStation?: boolean;
   WithSiteArea?: boolean;
@@ -23,7 +24,7 @@ export interface HttpChargingProfilesRequest extends HttpDatabaseRequest {
 }
 
 export interface HttpDownloadQrCodeRequest {
-  ChargeBoxID?: string;
+  ChargingStationID?: string;
   ConnectorID?: number;
   SiteID?: string;
   SiteAreaID?: string;
@@ -35,7 +36,7 @@ export interface HttpChargingStationsRequest extends HttpDatabaseRequest {
   WithNoSiteArea?: boolean;
   ConnectorStatus?: string;
   ConnectorType?: string;
-  ChargeBoxID?: string;
+  ChargingStationID?: string;
   SiteID?: string;
   WithSite?: boolean;
   SiteAreaID?: string;
@@ -45,6 +46,13 @@ export interface HttpChargingStationsRequest extends HttpDatabaseRequest {
   LocMaxDistanceMeters?: number;
 }
 
+export interface HttpChargingStationsInErrorRequest extends HttpDatabaseRequest {
+  Search?: string;
+  SiteID?: string;
+  SiteAreaID?: string;
+  ErrorType?: string;
+}
+
 export interface HttpChargingStationParamsUpdateRequest {
   id: string;
   chargingStationURL: string;
@@ -52,26 +60,31 @@ export interface HttpChargingStationParamsUpdateRequest {
   public: boolean;
   excludeFromSmartCharging: boolean;
   forceInactive: boolean;
+  manualConfiguration: boolean;
   siteAreaID: string;
   coordinates: number[];
+  chargePoints: ChargePoint[];
   connectors: {
     connectorId: number;
+    chargePointID: number;
     type: ConnectorType;
     power: number;
     amperage: number;
-    voltage: number;
+    voltage: Voltage;
     currentType: CurrentType;
     numberOfConnectedPhase: number;
     phaseAssignmentToGrid: PhaseAssignmentToGrid;
   }[];
 }
 
-export interface HttpChargingStationRequest {
+export type HttpChargingStationRequest = HttpByIDRequest;
+
+export interface HttpChargingStationOcppRequest {
   ChargeBoxID: string;
 }
 
 export interface HttpChargingStationConnectorRequest {
-  ChargeBoxID: string;
+  ChargingStationID: string;
   ConnectorID: number;
 }
 

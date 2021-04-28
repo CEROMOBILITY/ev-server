@@ -1,14 +1,12 @@
 import Lock, { LockEntity, LockType } from '../types/Locking';
 
 import BackendError from '../exception/BackendError';
-import Configuration from '../utils/Configuration';
 import Cypher from '../utils/Cypher';
 import LockingStorage from '../storage/mongodb/LockingStorage';
 import Logging from '../utils/Logging';
 import { ServerAction } from '../types/Server';
 import Utils from '../utils/Utils';
-import cfenv from 'cfenv';
-import os from 'os';
+import chalk from 'chalk';
 
 const MODULE_NAME = 'LockingManager';
 
@@ -36,24 +34,75 @@ export default class LockingManager {
             detailedMessages: { lock }
           });
       }
-      Logging.logDebug({
+      await Logging.logDebug({
         tenantID: lock.tenantID,
         module: MODULE_NAME, method: 'acquire',
         action: ServerAction.LOCKING,
         message: `Acquired successfully the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}'`,
         detailedMessages: { lock }
       });
-      Utils.isDevelopmentEnv() && console.debug(`Acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`);
+      Utils.isDevelopmentEnv() && console.debug(chalk.green(`Acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`));
       return true;
     } catch (error) {
-      Logging.logWarning({
+      await Logging.logWarning({
         tenantID: lock.tenantID,
         module: MODULE_NAME, method: 'acquire',
         action: ServerAction.LOCKING,
         message: `Cannot acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID ${lock.tenantID}`,
         detailedMessages: { lock, error: error.message, stack: error.stack }
       });
-      Utils.isDevelopmentEnv() && console.warn(`>>>>> Cannot acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`);
+      Utils.isDevelopmentEnv() && console.error(chalk.red(`Cannot acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`));
+      return false;
+    }
+  }
+
+  public static async tryAcquire(lock: Lock, timeout: number): Promise<boolean> {
+    let timeoutReached = false;
+    setTimeout(() => {
+      timeoutReached = true;
+    }, timeout);
+    try {
+      switch (lock.type) {
+        case LockType.EXCLUSIVE:
+          // Busy loop tries
+          while (!timeoutReached) {
+            try {
+              await LockingStorage.insertLock(lock);
+              break;
+            } catch {
+              await Utils.sleep(1000);
+            }
+          }
+          if (timeoutReached) {
+            throw Error(`Lock acquisition timeout ${timeout}ms reached`);
+          }
+          break;
+        default:
+          throw new BackendError({
+            action: ServerAction.LOCKING,
+            module: MODULE_NAME, method: 'tryAcquire',
+            message: `Cannot acquire a lock entity '${lock.entity}' ('${lock.key}') with an unknown type '${lock.type}'`,
+            detailedMessages: { lock }
+          });
+      }
+      await Logging.logDebug({
+        tenantID: lock.tenantID,
+        module: MODULE_NAME, method: 'tryAcquire',
+        action: ServerAction.LOCKING,
+        message: `Acquired successfully the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}'`,
+        detailedMessages: { lock }
+      });
+      Utils.isDevelopmentEnv() && console.debug(chalk.green(`Acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`));
+      return true;
+    } catch (error) {
+      await Logging.logWarning({
+        tenantID: lock.tenantID,
+        module: MODULE_NAME, method: 'tryAcquire',
+        action: ServerAction.LOCKING,
+        message: `Cannot acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID ${lock.tenantID}`,
+        detailedMessages: { lock, error: error.message, stack: error.stack }
+      });
+      Utils.isDevelopmentEnv() && console.error(chalk.red(`Cannot acquire the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`));
       return false;
     }
   }
@@ -62,24 +111,31 @@ export default class LockingManager {
     // Delete
     const result = await LockingStorage.deleteLock(lock);
     if (!result) {
-      Logging.logWarning({
+      await Logging.logWarning({
         tenantID: lock.tenantID,
         module: MODULE_NAME, method: 'release',
         action: ServerAction.LOCKING,
         message: `Lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' does not exist and cannot be released`,
-        detailedMessages: { lock }
+        detailedMessages: { lock, stack: new Error().stack }
       });
       return false;
     }
-    Logging.logDebug({
+    await Logging.logDebug({
       tenantID: lock.tenantID,
       module: MODULE_NAME, method: 'release',
       action: ServerAction.LOCKING,
       message: `Released successfully the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}'`,
       detailedMessages: { lock }
     });
-    Utils.isDevelopmentEnv() && console.debug(`Released the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`);
+    Utils.isDevelopmentEnv() && console.debug(chalk.green(`Released the lock entity '${lock.entity}' ('${lock.key}') of type '${lock.type}' in Tenant ID '${lock.tenantID}'`));
     return true;
+  }
+
+  public static async cleanupLocks(doCleanup = true): Promise<void> {
+    if (doCleanup) {
+      const hostname = Utils.getHostname();
+      await LockingStorage.deleteLockByHostname(hostname);
+    }
   }
 
   private static createLock(tenantID: string, entity: LockEntity, key: string, type: LockType = LockType.EXCLUSIVE): Lock {
@@ -115,7 +171,7 @@ export default class LockingManager {
       key: key.toLowerCase(),
       type: type,
       timestamp: new Date(),
-      hostname: Configuration.isCloudFoundry() ? cfenv.getAppEnv().name : os.hostname()
+      hostname: Utils.getHostname()
     };
   }
 }

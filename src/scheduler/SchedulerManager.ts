@@ -9,6 +9,7 @@ import Configuration from '../utils/Configuration';
 import Constants from '../utils/Constants';
 import Logging from '../utils/Logging';
 import LoggingDatabaseTableCleanupTask from './tasks/LoggingDatabaseTableCleanupTask';
+import MigrateSensitiveDataTask from './tasks/MigrateSensitiveDataTask';
 import OCPICheckCdrsTask from './tasks/ocpi/OCPICheckCdrsTask';
 import OCPICheckLocationsTask from './tasks/ocpi/OCPICheckLocationsTask';
 import OCPICheckSessionsTask from './tasks/ocpi/OCPICheckSessionsTask';
@@ -17,7 +18,9 @@ import OCPIGetLocationsTask from './tasks/ocpi/OCPIGetLocationsTask';
 import OCPIGetSessionsTask from './tasks/ocpi/OCPIGetSessionsTask';
 import OCPIGetTokensTask from './tasks/ocpi/OCPIGetTokensTask';
 import OCPIPushCdrsTask from './tasks/ocpi/OCPIPushCdrsTask';
-import OCPIPushLocationsTask from './tasks/ocpi/OCPIPushLocationsTask';
+import OCPIPushEVSEStatusesTask from './tasks/ocpi/OCPIPushEVSEStatusesTask';
+import OICPPushEvseDataTask from './tasks/oicp/OICPPushEvseDataTask';
+import OICPPushEvseStatusTask from './tasks/oicp/OICPPushEvseStatusTask';
 import SchedulerTask from './SchedulerTask';
 import { ServerAction } from '../types/Server';
 import SynchronizeBillingInvoicesTask from './tasks/SynchronizeBillingInvoicesTask';
@@ -32,11 +35,11 @@ const MODULE_NAME = 'SchedulerManager';
 export default class SchedulerManager {
   private static schedulerConfig = Configuration.getSchedulerConfig();
 
-  public static init() {
+  public static async init(): Promise<void> {
     // Active?
     if (SchedulerManager.schedulerConfig.active) {
       // Log
-      Logging.logInfo({
+      await Logging.logInfo({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.SCHEDULER,
         module: MODULE_NAME, method: 'init',
@@ -46,7 +49,7 @@ export default class SchedulerManager {
       for (const task of SchedulerManager.schedulerConfig.tasks) {
         // Active?
         if (!task.active) {
-          Logging.logWarning({
+          await Logging.logWarning({
             tenantID: Constants.DEFAULT_TENANT,
             action: ServerAction.SCHEDULER,
             module: MODULE_NAME, method: 'init',
@@ -71,8 +74,14 @@ export default class SchedulerManager {
             // The task runs every five minutes
             schedulerTask = new CheckPreparingSessionNotStartedTask();
             break;
-          case 'OCPIPushLocationsTask':
-            schedulerTask = new OCPIPushLocationsTask();
+          case 'OICPPushEVSEDataTask':
+            schedulerTask = new OICPPushEvseDataTask();
+            break;
+          case 'OICPPushEvseStatusTask':
+            schedulerTask = new OICPPushEvseStatusTask();
+            break;
+          case 'OCPIPushEVSEStatusesTask':
+            schedulerTask = new OCPIPushEVSEStatusesTask();
             break;
           case 'OCPIGetCdrsTask':
             schedulerTask = new OCPIGetCdrsTask();
@@ -122,8 +131,11 @@ export default class SchedulerManager {
           case 'CheckChargingStationTemplateTask':
             schedulerTask = new CheckChargingStationTemplateTask();
             break;
+          case 'MigrateSensitiveDataTask':
+            schedulerTask = new MigrateSensitiveDataTask();
+            break;
           default:
-            Logging.logError({
+            await Logging.logError({
               tenantID: Constants.DEFAULT_TENANT,
               action: ServerAction.SCHEDULER,
               module: MODULE_NAME, method: 'init',
@@ -140,7 +152,7 @@ export default class SchedulerManager {
           for (let i = 0; i < numberOfInstance; i++) {
             cron.schedule(task.periodicity, async (): Promise<void> => await schedulerTask.run(task.name, task.config));
           }
-          Logging.logInfo({
+          await Logging.logInfo({
             tenantID: Constants.DEFAULT_TENANT,
             action: ServerAction.SCHEDULER,
             module: MODULE_NAME, method: 'init',
@@ -150,7 +162,7 @@ export default class SchedulerManager {
       }
     } else {
       // Log
-      Logging.logWarning({
+      await Logging.logWarning({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.SCHEDULER,
         module: MODULE_NAME, method: 'init',

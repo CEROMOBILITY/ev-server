@@ -42,6 +42,18 @@ export enum OCPPVersion {
   VERSION_20 = '2.0',
 }
 
+export const OCPPVersionURLPath: Record<OCPPVersion, string> = Object.freeze({
+  '1.2': 'OCPP12',
+  '1.5': 'OCPP15',
+  '1.6': 'OCPP16',
+  '2.0': 'OCPP20'
+});
+
+export enum OCPPGeneralResponse {
+  ACCEPTED = 'Accepted',
+  REJECTED = 'Rejected',
+}
+
 export enum RegistrationStatus {
   ACCEPTED = 'Accepted',
   PENDING = 'Pending',
@@ -284,7 +296,7 @@ export enum OCPPAuthorizationStatus {
   BLOCKED = 'Blocked',
   EXPIRED = 'Expired',
   INVALID = 'Invalid',
-  CONCURENT_TX = 'ConcurrentTx'
+  CONCURRENT_TX = 'ConcurrentTx'
 }
 
 export interface OCPPDiagnosticsStatusNotificationRequest {

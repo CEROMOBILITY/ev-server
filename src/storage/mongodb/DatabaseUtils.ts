@@ -32,21 +32,6 @@ export default class DatabaseUtils {
     return `${prefix}.${collectionNameSuffix}`;
   }
 
-  public static getNotDeletedFilter(fieldName?: string): any {
-    if (fieldName) {
-      return JSON.parse(`[
-        { "${fieldName}.deleted": { "$exists": false } },
-        { "${fieldName}.deleted": false },
-        { "${fieldName}.deleted": null }
-      ]`);
-    }
-    return [
-      { 'deleted': { $exists: false } },
-      { 'deleted': null },
-      { 'deleted': false }
-    ];
-  }
-
   public static pushSiteLookupInAggregation(lookupParams: DbLookup, additionalPipeline: Record<string, any>[] = []): void {
     DatabaseUtils.pushCollectionLookupInAggregation('sites', {
       objectIDFields: ['companyID', 'createdBy', 'lastChangedBy'],
@@ -121,8 +106,8 @@ export default class DatabaseUtils {
   }
 
   public static pushArrayLookupInAggregation(arrayName: string,
-    lookupMethod: (lookupParams: DbLookup, additionalPipeline?: Record<string, any>[]) => void,
-    lookupParams: DbLookup, additionalParams: { pipeline?: Record<string, any>[], sort?: any } = {}): void {
+      lookupMethod: (lookupParams: DbLookup, additionalPipeline?: Record<string, any>[]) => void,
+      lookupParams: DbLookup, additionalParams: { pipeline?: Record<string, any>[], sort?: any } = {}): void {
     // Unwind the source
     lookupParams.aggregation.push({ '$unwind': { path: `$${arrayName}`, preserveNullAndEmptyArrays: true } });
     // Call the lookup
@@ -260,7 +245,7 @@ export default class DatabaseUtils {
   }
 
   public static projectFields(aggregation: any[], projectedFields: string[], removedFields: string[] = []): void {
-    if (projectedFields) {
+    if (!Utils.isEmptyArray(projectedFields)) {
       const project = {
         $project: {}
       };
@@ -347,11 +332,11 @@ export default class DatabaseUtils {
     dest.lastChangedBy = null;
     if (entity.createdBy || entity.createdOn) {
       dest.createdBy = DatabaseUtils._mongoConvertUserID(entity, 'createdBy');
-      dest.createdOn = entity.createdOn;
+      dest.createdOn = Utils.convertToDate(entity.createdOn);
     }
     if (entity.lastChangedBy || entity.lastChangedOn) {
       dest.lastChangedBy = DatabaseUtils._mongoConvertUserID(entity, 'lastChangedBy');
-      dest.lastChangedOn = entity.lastChangedOn;
+      dest.lastChangedOn = Utils.convertToDate(entity.lastChangedOn);
     }
   }
 

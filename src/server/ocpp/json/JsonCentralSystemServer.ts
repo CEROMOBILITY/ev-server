@@ -8,14 +8,18 @@ import Constants from '../../../utils/Constants';
 import JsonRestWSConnection from './JsonRestWSConnection';
 import JsonWSConnection from './JsonWSConnection';
 import Logging from '../../../utils/Logging';
+import { OCPPVersion } from '../../../types/ocpp/OCPPServer';
 import { ServerAction } from '../../../types/Server';
+import Utils from '../../../utils/Utils';
 import WSServer from './WSServer';
+import { WebSocketCloseEventStatusCode } from '../../../types/WebSocket';
 import global from '../../../types/GlobalType';
 import http from 'http';
 
+const MODULE_NAME = 'JsonCentralSystemServer';
+
 export default class JsonCentralSystemServer extends CentralSystemServer {
   private serverName: string;
-  private MODULE_NAME: string;
   private serverConfig: CentralSystemConfiguration;
   private wsServer: WSServer;
   private jsonChargingStationClients: Map<string, JsonWSConnection>;
@@ -28,7 +32,6 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
     super(centralSystemConfig, chargingStationConfig);
     // Keep local
     this.serverName = 'OCPP';
-    this.MODULE_NAME = 'JsonCentralSystemServer';
     this.serverConfig = centralSystemConfig;
     this.jsonChargingStationClients = new Map<string, JsonWSConnection>();
     this.jsonRestClients = new Map<string, JsonRestWSConnection>();
@@ -45,8 +48,20 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
   public getChargingStationClient(tenantID: string, chargingStationID: string): ChargingStationClient {
     // Build ID
     const id = `${tenantID}~${chargingStationID}}`;
-    // Return from the cache
-    return this.jsonChargingStationClients.get(id)?.getChargingStationClient();
+    // Get the Json Web Socket
+    const jsonWebSocket = this.jsonChargingStationClients.get(id);
+    if (!jsonWebSocket) {
+      void Logging.logError({
+        tenantID: tenantID,
+        source: chargingStationID,
+        module: MODULE_NAME, method: 'getChargingStationClient',
+        action: ServerAction.WS_CONNECTION,
+        message: 'No Web Socket connection found'
+      });
+      return null;
+    }
+    // Return the client
+    return jsonWebSocket.getChargingStationClient();
   }
 
   public get port(): number {
@@ -56,6 +71,10 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
   public removeJsonConnection(wsConnection: JsonWSConnection): boolean {
     // Remove from cache
     return this.jsonChargingStationClients.delete(wsConnection.getID());
+  }
+
+  public getNumberOfJsonConnections(): number {
+    return this.jsonChargingStationClients.size;
   }
 
   public removeRestConnection(wsConnection: JsonRestWSConnection): boolean {
@@ -83,21 +102,20 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
   private createWSServer() {
     const verifyClient = (info) => {
       // Check the URI
-      if (info.req.url.startsWith('/OCPP16')) {
+      if (info.req.url.startsWith(`/${Utils.getOCPPServerVersionURLPath(OCPPVersion.VERSION_16)}`)) {
         return true;
       }
       if (info.req.url.startsWith('/REST')) {
         return true;
       }
-      Logging.logError({
+      void Logging.logError({
         tenantID: Constants.DEFAULT_TENANT,
-        module: this.MODULE_NAME, method: 'verifyClient',
+        module: MODULE_NAME, method: 'verifyClient',
         action: ServerAction.EXPRESS_SERVER,
         message: `Invalid connection URL ${info.req.url}`
       });
       return false;
     };
-
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const handleProtocols = (protocols: string | string[], request: http.IncomingMessage): boolean | string => {
       // Check the protocols and ensure protocol used as ocpp1.6 or nothing (should create an error)
@@ -113,15 +131,14 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
       } else if (protocols === 'rest') {
         return protocols;
       }
-      Logging.logError({
+      void Logging.logError({
         tenantID: Constants.DEFAULT_TENANT,
-        module: this.MODULE_NAME, method: 'handleProtocols',
+        module: MODULE_NAME, method: 'handleProtocols',
         action: ServerAction.EXPRESS_SERVER,
         message: `Invalid protocol ${protocols.toString()}`
       });
       return false;
     };
-
     // Create the WS server
     this.wsServer = new WSServer(this.serverConfig.port, this.serverConfig.host, this.serverName, WSServer.createHttpServer(this.centralSystemConfig),
       verifyClient, handleProtocols);
@@ -136,7 +153,7 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
           await wsConnection.initialize();
           // Add
           this.addRestConnection(wsConnection);
-        } else if (req.url.startsWith('/OCPP16')) {
+        } else if (req.url.startsWith(`/${Utils.getOCPPServerVersionURLPath(OCPPVersion.VERSION_16)}`)) {
           // Create a Json WebSocket connection object
           const wsConnection = new JsonWSConnection(ws, req, this.chargingStationConfig, this);
           // Init
@@ -147,11 +164,10 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
           throw Error('Wrong WebSocket client connection URI path');
         }
       } catch (error) {
-        // Log
-        Logging.logException(
-          error, ServerAction.WS_CONNECTION, '', this.MODULE_NAME, 'connection', Constants.DEFAULT_TENANT);
+        void Logging.logException(
+          error, ServerAction.WS_CONNECTION, '', MODULE_NAME, 'connection', Constants.DEFAULT_TENANT);
         // Respond
-        ws.close(Constants.WS_UNSUPPORTED_DATA, error.message);
+        ws.close(WebSocketCloseEventStatusCode.CLOSE_UNSUPPORTED, error.message);
       }
     });
     // Keep alive WebSocket connection
@@ -159,13 +175,11 @@ export default class JsonCentralSystemServer extends CentralSystemServer {
       this.keepAliveInterval = setInterval((): void => {
         for (const jsonWSConnection of this.jsonChargingStationClients.values()) {
           if (!jsonWSConnection.isConnectionAlive) {
-            // Log
-            Logging.logError({
+            void Logging.logError({
               tenantID: jsonWSConnection.getTenantID(),
               source: jsonWSConnection.getChargingStationID(),
               action: ServerAction.WS_JSON_CONNECTION_CLOSED,
-              module: this.MODULE_NAME,
-              method: 'createWSServer',
+              module: MODULE_NAME, method: 'createWSServer',
               message: `WebSocket does not respond to ping (IP: ${jsonWSConnection.getClientIP().toString()}), terminating`
             });
             jsonWSConnection.getWSConnection().terminate();

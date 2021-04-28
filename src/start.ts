@@ -1,11 +1,14 @@
+import AsyncTaskManager from './async-task/AsyncTaskManager';
 import CentralRestServer from './server/rest/CentralRestServer';
 import CentralSystemConfiguration from './types/configuration/CentralSystemConfiguration';
 import CentralSystemRestServiceConfiguration from './types/configuration/CentralSystemRestServiceConfiguration';
 import ChargingStationConfiguration from './types/configuration/ChargingStationConfiguration';
+import ChargingStationStorage from './storage/mongodb/ChargingStationStorage';
 import Configuration from './utils/Configuration';
 import Constants from './utils/Constants';
 import I18nManager from './utils/I18nManager';
 import JsonCentralSystemServer from './server/ocpp/json/JsonCentralSystemServer';
+import LockingManager from './locking/LockingManager';
 import Logging from './utils/Logging';
 import MigrationConfiguration from './types/configuration/MigrationConfiguration';
 import MigrationHandler from './migration/MigrationHandler';
@@ -15,6 +18,8 @@ import OCPIServer from './server/ocpi/OCPIServer';
 import OCPIServiceConfiguration from './types/configuration/OCPIServiceConfiguration';
 import ODataServer from './server/odata/ODataServer';
 import ODataServiceConfiguration from './types/configuration/ODataServiceConfiguration';
+import OICPServer from './server/oicp/OICPServer';
+import OICPServiceConfiguration from './types/configuration/OICPServiceConfiguration';
 import SchedulerManager from './scheduler/SchedulerManager';
 import { ServerAction } from './types/Server';
 import SoapCentralSystemServer from './server/ocpp/soap/SoapCentralSystemServer';
@@ -39,6 +44,8 @@ export default class Bootstrap {
   private static JsonCentralSystemServer: JsonCentralSystemServer;
   private static ocpiConfig: OCPIServiceConfiguration;
   private static ocpiServer: OCPIServer;
+  private static oicpConfig: OICPServiceConfiguration;
+  private static oicpServer: OICPServer;
   private static oDataServerConfig: ODataServiceConfiguration;
   private static oDataServer: ODataServer;
   private static databaseDone: boolean;
@@ -62,6 +69,7 @@ export default class Bootstrap {
       Bootstrap.centralSystemsConfig = Configuration.getCentralSystemsConfig();
       Bootstrap.chargingStationConfig = Configuration.getChargingStationConfig();
       Bootstrap.ocpiConfig = Configuration.getOCPIServiceConfig();
+      Bootstrap.oicpConfig = Configuration.getOICPServiceConfig();
       Bootstrap.oDataServerConfig = Configuration.getODataServiceConfig();
       Bootstrap.isClusterEnabled = Configuration.getClusterConfig().enabled;
       Bootstrap.migrationConfig = Configuration.getMigrationConfig();
@@ -89,7 +97,7 @@ export default class Bootstrap {
           logMsg = `Database connected to '${Bootstrap.storageConfig.implementation}' successfully in worker ${cluster.worker.id}`;
         }
         // Log
-        Logging.logInfo({
+        await Logging.logInfo({
           tenantID: Constants.DEFAULT_TENANT,
           action: ServerAction.STARTUP,
           module: MODULE_NAME, method: 'start',
@@ -123,13 +131,27 @@ export default class Bootstrap {
         // -------------------------------------------------------------------------
         // Init the Scheduler
         // -------------------------------------------------------------------------
-        SchedulerManager.init();
+        await SchedulerManager.init();
+        // -------------------------------------------------------------------------
+        // Init the Async Task
+        // -------------------------------------------------------------------------
+        await AsyncTaskManager.init();
+        // -------------------------------------------------------------------------
+        // Locks remain in storage if server crashes
+        // Delete acquired database locks with same hostname
+        // -------------------------------------------------------------------------
+        await LockingManager.cleanupLocks(Configuration.isCloudFoundry() || Utils.isDevelopmentEnv());
+        // -------------------------------------------------------------------------
+        // Populate at startup the DB with shared data
+        // -------------------------------------------------------------------------
+        // 1 - Charging station templates
+        await ChargingStationStorage.updateChargingStationTemplatesFromFile();
       }
     } catch (error) {
       // Log
       // eslint-disable-next-line no-console
       console.error(error);
-      Logging.logError({
+      await Logging.logError({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.STARTUP,
         module: MODULE_NAME, method: 'start',
@@ -141,6 +163,9 @@ export default class Bootstrap {
 
   private static startServerWorkers(serverName: string): void {
     Bootstrap.numWorkers = Configuration.getClusterConfig().numWorkers;
+    /**
+     * @param worker
+     */
     function onlineCb(worker: cluster.Worker): void {
       // Log
       const logMsg = `${serverName} server worker ${worker.id} is online`;
@@ -153,6 +178,11 @@ export default class Bootstrap {
       // eslint-disable-next-line no-console
       console.log(logMsg);
     }
+    /**
+     * @param worker
+     * @param code
+     * @param signal
+     */
     function exitCb(worker: cluster.Worker, code, signal?): void {
       // Log
       const logMsg = serverName + ' server worker ' + worker.id.toString() + ' died with code: ' + code + ', and signal: ' + signal +
@@ -220,13 +250,11 @@ export default class Bootstrap {
         }
         // Start it
         await Bootstrap.centralRestServer.start();
-        // FIXME: Issue with cluster, see https://github.com/LucasBrazi06/ev-server/issues/1097
         if (this.centralSystemRestConfig.socketIO) {
           // Start database Socket IO notifications
           await this.centralRestServer.startSocketIO();
         }
       }
-
       // -------------------------------------------------------------------------
       // Listen to DB changes
       // -------------------------------------------------------------------------
@@ -235,7 +263,6 @@ export default class Bootstrap {
         Bootstrap.storageNotification = new MongoDBStorageNotification(Bootstrap.storageConfig, Bootstrap.centralRestServer);
       }
       await Bootstrap.storageNotification.start();
-
       // -------------------------------------------------------------------------
       // Central Server (Charging Stations)
       // -------------------------------------------------------------------------
@@ -255,7 +282,7 @@ export default class Bootstrap {
               // Create implementation
               Bootstrap.JsonCentralSystemServer = new JsonCentralSystemServer(centralSystemConfig, Bootstrap.chargingStationConfig);
               // Start
-              // FIXME: Issue with cluster, see https://github.com/LucasBrazi06/ev-server/issues/1097
+              // FIXME: Issue with cluster, see https://github.com/sap-labs-france/ev-server/issues/1097
               await Bootstrap.JsonCentralSystemServer.start();
               break;
             // Not Found
@@ -265,7 +292,6 @@ export default class Bootstrap {
           }
         }
       }
-
       // -------------------------------------------------------------------------
       // OCPI Server
       // -------------------------------------------------------------------------
@@ -275,7 +301,15 @@ export default class Bootstrap {
         // Start server instance
         await Bootstrap.ocpiServer.start();
       }
-
+      // -------------------------------------------------------------------------
+      // OICP Server
+      // -------------------------------------------------------------------------
+      if (Bootstrap.oicpConfig) {
+        // Create server instance
+        Bootstrap.oicpServer = new OICPServer(Bootstrap.oicpConfig);
+        // Start server instance
+        await Bootstrap.oicpServer.start();
+      }
       // -------------------------------------------------------------------------
       // OData Server
       // -------------------------------------------------------------------------
@@ -289,7 +323,7 @@ export default class Bootstrap {
       // Log
       // eslint-disable-next-line no-console
       console.error(error);
-      Logging.logError({
+      await Logging.logError({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.STARTUP,
         module: MODULE_NAME, method: 'startServersListening',
@@ -303,6 +337,6 @@ export default class Bootstrap {
 // Start
 Bootstrap.start().catch(
   (error) => {
-    console.log(error);
+    console.error(error);
   }
 );

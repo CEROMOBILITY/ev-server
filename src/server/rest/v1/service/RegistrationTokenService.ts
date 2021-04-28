@@ -28,21 +28,21 @@ export default class RegistrationTokenService {
     if (Utils.isComponentActiveFromToken(req.user, TenantComponents.ORGANIZATION) && filteredRequest.siteAreaID) {
       // Get the Site Area
       const siteArea = await SiteAreaStorage.getSiteArea(req.user.tenantID, filteredRequest.siteAreaID);
-      UtilsService.assertObjectExists(action, siteArea, `Site Area '${filteredRequest.siteAreaID}' does not exist`,
+      UtilsService.assertObjectExists(action, siteArea, `Site Area ID '${filteredRequest.siteAreaID}' does not exist`,
         MODULE_NAME, 'handleCreateRegistrationToken', req.user);
-      if (!Authorizations.canCreateRegistrationToken(req.user, siteArea.siteID)) {
+      if (!await Authorizations.canCreateRegistrationToken(req.user, siteArea.siteID)) {
         // Not Authorized!
         throw new AppAuthError({
-          errorCode: HTTPAuthError.ERROR,
+          errorCode: HTTPAuthError.FORBIDDEN,
           user: req.user,
           action: Action.CREATE, entity: Entity.TOKEN,
           module: MODULE_NAME, method: 'handleCreateRegistrationToken'
         });
       }
-    } else if (!Authorizations.canCreateRegistrationToken(req.user, null)) {
+    } else if (!await Authorizations.canCreateRegistrationToken(req.user, null)) {
       // Not Authorized!
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.CREATE, entity: Entity.TOKEN,
         module: MODULE_NAME, method: 'handleCreateRegistrationToken'
@@ -54,6 +54,18 @@ export default class RegistrationTokenService {
         source: Constants.CENTRAL_SERVER,
         errorCode: HTTPError.GENERAL_ERROR,
         message: 'The description must be provided',
+        module: MODULE_NAME, method: 'handleCreateRegistrationToken',
+        user: req.user
+      });
+    }
+    // Check site is provided for site admins
+    if (Utils.isComponentActiveFromToken(req.user, TenantComponents.ORGANIZATION) &&
+        Authorizations.isSiteAdmin(req.user) &&
+        !filteredRequest.siteAreaID) {
+      throw new AppError({
+        source: Constants.CENTRAL_SERVER,
+        errorCode: HTTPError.GENERAL_ERROR,
+        message: 'The Site ID must be provided',
         module: MODULE_NAME, method: 'handleCreateRegistrationToken',
         user: req.user
       });
@@ -72,6 +84,9 @@ export default class RegistrationTokenService {
     registrationToken.ocpp15SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16JSONUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+    registrationToken.ocpp15SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16JSONSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
     // Ok
     res.json(Object.assign({ id: registrationToken.id }, Constants.REST_RESPONSE_SUCCESS));
     next();
@@ -81,25 +96,27 @@ export default class RegistrationTokenService {
     // Filter
     const filteredRequest = RegistrationTokenSecurity.filterRegistrationTokenUpdateRequest(req.body);
     UtilsService.assertIdIsProvided(action, filteredRequest.id, MODULE_NAME, 'handleUpdateRegistrationToken', req.user);
+    // Check Auth
+    if (!await Authorizations.canUpdateRegistrationToken(req.user, filteredRequest.siteAreaID)) {
+      // Not Authorized!
+      throw new AppAuthError({
+        errorCode: HTTPAuthError.FORBIDDEN,
+        user: req.user,
+        action: Action.UPDATE, entity: Entity.TOKEN,
+        module: MODULE_NAME, method: 'handleUpdateRegistrationToken'
+      });
+    }
     // Get Token
     const registrationToken = await RegistrationTokenStorage.getRegistrationToken(req.user.tenantID, filteredRequest.id);
     UtilsService.assertObjectExists(action, registrationToken, `Token ID '${filteredRequest.id}' does not exist`,
       MODULE_NAME, 'handleUpdateRegistrationToken', req.user);
     if (Utils.isComponentActiveFromToken(req.user, TenantComponents.ORGANIZATION)) {
-      // Check Site Area
-      const siteArea = await SiteAreaStorage.getSiteArea(req.user.tenantID, filteredRequest.siteAreaID);
-      UtilsService.assertObjectExists(action, siteArea, `Site Area ID '${filteredRequest.siteAreaID}' does not exist`,
-        MODULE_NAME, 'handleUpdateRegistrationToken', req.user);
-    }
-    // Check Auth
-    if (!Authorizations.canUpdateRegistrationToken(req.user, registrationToken.siteArea?.siteID)) {
-      // Not Authorized!
-      throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
-        user: req.user,
-        action: Action.UPDATE, entity: Entity.TOKEN,
-        module: MODULE_NAME, method: 'handleUpdateRegistrationToken'
-      });
+      // Check Site Area if it's provided
+      if (filteredRequest.siteAreaID) {
+        const siteArea = await SiteAreaStorage.getSiteArea(req.user.tenantID, filteredRequest.siteAreaID);
+        UtilsService.assertObjectExists(action, siteArea, `Site Area ID '${filteredRequest.siteAreaID}' does not exist`,
+          MODULE_NAME, 'handleUpdateRegistrationToken', req.user);
+      }
     }
     // Check
     if (!filteredRequest.description) {
@@ -117,12 +134,16 @@ export default class RegistrationTokenService {
     registrationToken.expirationDate = filteredRequest.expirationDate ? filteredRequest.expirationDate : moment().add(1, 'month').toDate();
     registrationToken.lastChangedBy = { id: req.user.id };
     registrationToken.lastChangedOn = new Date();
+    registrationToken.revocationDate = null;
     // Save
     registrationToken.id = await RegistrationTokenStorage.saveRegistrationToken(req.user.tenantID, registrationToken);
     // Build OCPP URLs
     registrationToken.ocpp15SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
     registrationToken.ocpp16JSONUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+    registrationToken.ocpp15SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16JSONSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
     // Ok
     res.json(Constants.REST_RESPONSE_SUCCESS);
     next();
@@ -133,12 +154,12 @@ export default class RegistrationTokenService {
     UtilsService.assertIdIsProvided(action, tokenID, MODULE_NAME, 'handleDeleteRegistrationToken', req.user);
     // Get Token
     const registrationToken = await RegistrationTokenStorage.getRegistrationToken(req.user.tenantID, tokenID);
-    UtilsService.assertObjectExists(action, registrationToken, `Registration Token '${tokenID}' does not exist`,
+    UtilsService.assertObjectExists(action, registrationToken, `Registration Token ID '${tokenID}' does not exist`,
       MODULE_NAME, 'handleDeleteRegistrationToken', req.user);
     // Check auth
-    if (!Authorizations.canDeleteRegistrationToken(req.user, registrationToken.siteArea?.siteID)) {
+    if (!await Authorizations.canDeleteRegistrationToken(req.user, registrationToken.siteArea?.siteID)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.DELETE, entity: Entity.TOKEN,
         module: MODULE_NAME, method: 'handleDeleteRegistrationToken',
@@ -165,16 +186,26 @@ export default class RegistrationTokenService {
     UtilsService.assertIdIsProvided(action, tokenID, MODULE_NAME, 'handleDeleteRegistrationToken', req.user);
     // Get Token
     const registrationToken = await RegistrationTokenStorage.getRegistrationToken(req.user.tenantID, tokenID);
-    UtilsService.assertObjectExists(action, registrationToken, `Registration Token '${tokenID}' does not exist`,
+    UtilsService.assertObjectExists(action, registrationToken, `Registration Token ID '${tokenID}' does not exist`,
       MODULE_NAME, 'handleRevokeRegistrationToken', req.user);
     // Check auth
-    if (!Authorizations.canUpdateRegistrationToken(req.user, registrationToken.siteArea?.siteID)) {
+    if (!await Authorizations.canUpdateRegistrationToken(req.user, registrationToken.siteArea?.siteID)) {
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.UPDATE, entity: Entity.TOKEN,
         module: MODULE_NAME, method: 'handleRevokeRegistrationToken',
         value: tokenID
+      });
+    }
+    if (registrationToken.expirationDate &&
+        moment(registrationToken.expirationDate).isBefore(new Date())) {
+      throw new AppError({
+        source: Constants.CENTRAL_SERVER,
+        errorCode: HTTPError.GENERAL_ERROR,
+        message: 'Cannot revoke a token that has expired',
+        module: MODULE_NAME, method: 'handleRevokeRegistrationToken',
+        user: req.user
       });
     }
     // Update
@@ -197,10 +228,10 @@ export default class RegistrationTokenService {
 
   static async handleGetRegistrationTokens(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Check auth
-    if (!Authorizations.canListRegistrationTokens(req.user)) {
+    if (!await Authorizations.canListRegistrationTokens(req.user)) {
       // Not Authorized!
       throw new AppAuthError({
-        errorCode: HTTPAuthError.ERROR,
+        errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
         action: Action.LIST, entity: Entity.TOKENS,
         module: MODULE_NAME, method: 'handleGetRegistrationTokens'
@@ -209,7 +240,7 @@ export default class RegistrationTokenService {
     const filteredRequest = RegistrationTokenSecurity.filterRegistrationTokensRequest(req.query);
     // Check User
     let userProject: string[] = [];
-    if (Authorizations.canListUsers(req.user)) {
+    if (await Authorizations.canListUsers(req.user)) {
       userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
     }
     // Get the tokens
@@ -221,7 +252,7 @@ export default class RegistrationTokenService {
       {
         limit: filteredRequest.Limit,
         skip: filteredRequest.Skip,
-        sort: filteredRequest.Sort,
+        sort: filteredRequest.SortFields,
         onlyRecordCount: filteredRequest.OnlyRecordCount
       },
       [
@@ -235,9 +266,52 @@ export default class RegistrationTokenService {
       registrationToken.ocpp15SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
       registrationToken.ocpp16SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
       registrationToken.ocpp16JSONUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+      registrationToken.ocpp15SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
+      registrationToken.ocpp16SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
+      registrationToken.ocpp16JSONSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
     }
     // Ok
     res.json(registrationTokens);
     next();
   }
+
+  static async handleGetRegistrationToken(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
+    const filteredRequest = RegistrationTokenSecurity.filterRegistrationTokenByIDRequest(req.query);
+    // Check User
+    let userProject: string[] = [];
+    if (await Authorizations.canListUsers(req.user)) {
+      userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
+    }
+    // Get the token
+    const registrationToken = await RegistrationTokenStorage.getRegistrationToken(req.user.tenantID,
+      filteredRequest,
+      [
+        'id', 'status', 'description', 'createdOn', 'lastChangedOn', 'expirationDate', 'revocationDate',
+        'siteAreaID', 'siteArea.name',
+        ...userProject
+      ]);
+    UtilsService.assertObjectExists(action, registrationToken, `Token ID '${filteredRequest}' does not exist`,
+      MODULE_NAME, 'handleGetRegistrationToken', req.user);
+    // Check auth
+    if (!await Authorizations.canReadRegistrationToken(req.user, registrationToken?.siteArea?.siteID)) {
+      // Not Authorized!
+      throw new AppAuthError({
+        errorCode: HTTPAuthError.FORBIDDEN,
+        user: req.user,
+        action: Action.READ, entity: Entity.TOKEN,
+        module: MODULE_NAME, method: 'handleGetRegistrationToken'
+      });
+    }
+    // Build OCPP URLs
+    registrationToken.ocpp15SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16SOAPUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16JSONUrl = Utils.buildOCPPServerURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+    registrationToken.ocpp15SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_15, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16SOAPSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.SOAP, registrationToken.id);
+    registrationToken.ocpp16JSONSecureUrl = Utils.buildOCPPServerSecureURL(req.user.tenantID, OCPPVersion.VERSION_16, OCPPProtocol.JSON, registrationToken.id);
+    // Ok
+    res.json(registrationToken);
+    next();
+  }
 }
+

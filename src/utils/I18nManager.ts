@@ -2,6 +2,7 @@
 import 'moment/locale/fr';
 import 'moment/locale/de';
 import 'moment/locale/es';
+import 'moment/locale/it';
 import 'moment/locale/en-gb';
 import 'moment/locale/pt-br';
 
@@ -14,9 +15,10 @@ import i18n from 'i18n-js';
 import moment from 'moment';
 
 export default class I18nManager {
+  private static instances = new Map<string, I18nManager>();
   private language: string;
 
-  public constructor(locale: string) {
+  private constructor(locale: string) {
     // Get language
     this.language = Utils.getLanguageFromLocale(locale);
     // Supported languages?
@@ -26,6 +28,15 @@ export default class I18nManager {
     }
   }
 
+  // Get the already existing instance of I18nManager depending on the locale if it exists otherwise we create it
+  public static getInstanceForLocale(locale: string): I18nManager {
+    if (!I18nManager.instances.has(locale)) {
+      I18nManager.instances.set(locale, new I18nManager(locale));
+    }
+
+    return I18nManager.instances.get(locale);
+  }
+
   public static initialize(): void {
     // Get translation files
     i18n.translations['en'] = JSON.parse(fs.readFileSync(`${global.appRoot}/assets/i18n/en.json`, 'utf8'));
@@ -33,6 +44,7 @@ export default class I18nManager {
     i18n.translations['es'] = JSON.parse(fs.readFileSync(`${global.appRoot}/assets/i18n/es.json`, 'utf8'));
     i18n.translations['de'] = JSON.parse(fs.readFileSync(`${global.appRoot}/assets/i18n/de.json`, 'utf8'));
     i18n.translations['pt'] = JSON.parse(fs.readFileSync(`${global.appRoot}/assets/i18n/pt.json`, 'utf8'));
+    i18n.translations['it'] = JSON.parse(fs.readFileSync(`${global.appRoot}/assets/i18n/it.json`, 'utf8'));
     // Default
     i18n.locale = Constants.DEFAULT_LANGUAGE;
     moment.locale(Constants.DEFAULT_LANGUAGE);

@@ -16,5 +16,5 @@ export default abstract class AssetIntegration<T extends AssetSetting> {
 
   abstract checkConnection(): Promise<void>;
 
-  abstract retrieveConsumption(asset: Asset): Promise<AbstractCurrentConsumption>;
+  abstract retrieveConsumptions(asset: Asset, manualCall?: boolean): Promise<AbstractCurrentConsumption[]>;
 }

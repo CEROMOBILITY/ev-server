@@ -1,5 +1,4 @@
 import RefundReport, { RefundStatus } from '../../types/Refund';
-import Transaction, { OcpiData } from '../../types/Transaction';
 import { TransactionInError, TransactionInErrorType } from '../../types/InError';
 import global, { FilterParams } from './../../types/GlobalType';
 
@@ -9,8 +8,9 @@ import { DataResult } from '../../types/DataResult';
 import DatabaseUtils from './DatabaseUtils';
 import DbParams from '../../types/database/DbParams';
 import Logging from '../../utils/Logging';
-import { NotifySessionNotStarted } from '../../types/Notification';
+import { NotifySessionNotStarted } from '../../types/UserNotifications';
 import { ServerAction } from '../../types/Server';
+import Transaction from '../../types/Transaction';
 import Utils from '../../utils/Utils';
 import moment from 'moment';
 
@@ -35,7 +35,7 @@ export default class TransactionStorage {
     // Delete Consumptions
     await ConsumptionStorage.deleteConsumptions(tenantID, transactionsIDs);
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteTransaction', uniqueTimerID, { transactionsIDs });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteTransaction', uniqueTimerID, { transactionsIDs });
     return result.deletedCount;
   }
 
@@ -94,6 +94,7 @@ export default class TransactionStorage {
       currentInstantAmpsL2: Utils.convertToInt(transactionToSave.currentInstantAmpsL2),
       currentInstantAmpsL3: Utils.convertToInt(transactionToSave.currentInstantAmpsL3),
       currentInstantAmpsDC: Utils.convertToInt(transactionToSave.currentInstantAmpsDC),
+      migrationTag: transactionToSave.migrationTag,
     };
     if (transactionToSave.phasesUsed) {
       transactionMDB.phasesUsed = {
@@ -167,11 +168,14 @@ export default class TransactionStorage {
     }
     if (transactionToSave.billingData) {
       transactionMDB.billingData = {
-        status: transactionToSave.billingData.status,
-        invoiceID: Utils.convertToObjectID(transactionToSave.billingData.invoiceID),
-        invoiceStatus: transactionToSave.billingData.invoiceStatus,
-        invoiceItem: transactionToSave.billingData.invoiceItem,
+        withBillingActive: transactionToSave.billingData.withBillingActive,
         lastUpdate: Utils.convertToDate(transactionToSave.billingData.lastUpdate),
+        stop: {
+          status: transactionToSave.billingData.stop?.status,
+          invoiceID: Utils.convertToObjectID(transactionToSave.billingData.stop?.invoiceID),
+          invoiceStatus: transactionToSave.billingData.stop?.invoiceStatus,
+          invoiceItem: transactionToSave.billingData.stop?.invoiceItem,
+        },
       };
     }
     if (transactionToSave.ocpiData) {
@@ -186,13 +190,19 @@ export default class TransactionStorage {
         transactionMDB.ocpiData.cdrCheckedOn = transactionToSave.ocpiData.cdrCheckedOn;
       }
     }
+    if (transactionToSave.oicpData) {
+      transactionMDB.oicpData = {
+        session: transactionToSave.oicpData.session,
+        cdr: transactionToSave.oicpData.cdr
+      };
+    }
     // Modify
     await global.database.getCollection<any>(tenantID, 'transactions').findOneAndReplace(
       { '_id': Utils.convertToInt(transactionToSave.id) },
       transactionMDB,
       { upsert: true });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransaction', uniqueTimerID, transactionMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransaction', uniqueTimerID, transactionMDB);
     // Return
     return transactionToSave.id;
   }
@@ -212,7 +222,7 @@ export default class TransactionStorage {
       }
     });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'assignTransactionsToUser', uniqueTimerID);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'assignTransactionsToUser', uniqueTimerID);
   }
 
   public static async getUnassignedTransactionsCount(tenantID: string, tagID: string): Promise<number> {
@@ -226,7 +236,7 @@ export default class TransactionStorage {
       ]
     }).count();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getUnassignedTransactionsCount', uniqueTimerID);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getUnassignedTransactionsCount', uniqueTimerID);
     return unassignedCount;
   }
 
@@ -241,7 +251,7 @@ export default class TransactionStorage {
       .limit(1)
       .toArray();
     // Found?
-    if (!firstTransactionsMDB || firstTransactionsMDB.length === 0) {
+    if (Utils.isEmptyArray(firstTransactionsMDB)) {
       return null;
     }
     const transactionYears = [];
@@ -250,27 +260,27 @@ export default class TransactionStorage {
       transactionYears.push(i);
     }
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactionYears', uniqueTimerID, firstTransactionsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactionYears', uniqueTimerID, firstTransactionsMDB);
     return transactionYears;
   }
 
   public static async getTransactions(tenantID: string,
-    params: {
-      transactionIDs?: number[]; issuer?: boolean; search?: string; ownerID?: string; userIDs?: string[]; siteAdminIDs?: string[];
-      chargeBoxIDs?: string[]; siteAreaIDs?: string[]; siteIDs?: string[]; connectorId?: number; startDateTime?: Date;
-      endDateTime?: Date; stop?: any; minimalPrice?: boolean; reportIDs?: string[]; tagIDs?: string[]; inactivityStatus?: string[];
-      ocpiSessionID?: string; ocpiSessionDateFrom?: Date; ocpiSessionDateTo?: Date; ocpiCdrDateFrom?: Date; ocpiCdrDateTo?: Date;
-      ocpiSessionChecked?: boolean; ocpiCdrChecked?: boolean;
-      statistics?: 'refund' | 'history'; refundStatus?: string[];
-    },
-    dbParams: DbParams, projectFields?: string[]):
-    Promise<{
-      count: number; result: Transaction[]; stats: {
-        totalConsumptionWattHours?: number; totalPriceRefund?: number; totalPricePending?: number;
-        countRefundTransactions?: number; countPendingTransactions?: number; countRefundedReports?: number; totalDurationSecs?: number;
-        totalPrice?: number; currency?: string; totalInactivitySecs?: number; count: number;
-      };
-    }> {
+      params: {
+        transactionIDs?: number[]; issuer?: boolean; search?: string; ownerID?: string; userIDs?: string[]; siteAdminIDs?: string[];
+        chargeBoxIDs?: string[]; siteAreaIDs?: string[]; siteIDs?: string[]; connectorIDs?: number[]; startDateTime?: Date;
+        endDateTime?: Date; stop?: any; minimalPrice?: boolean; reportIDs?: string[]; tagIDs?: string[]; inactivityStatus?: string[];
+        ocpiSessionID?: string; ocpiSessionDateFrom?: Date; ocpiSessionDateTo?: Date; ocpiCdrDateFrom?: Date; ocpiCdrDateTo?: Date;
+        ocpiSessionChecked?: boolean; ocpiCdrChecked?: boolean; oicpSessionID?: string;
+        statistics?: 'refund' | 'history'; refundStatus?: string[]; withTag?: boolean;
+      },
+      dbParams: DbParams, projectFields?: string[]):
+      Promise<{
+        count: number; result: Transaction[]; stats: {
+          totalConsumptionWattHours?: number; totalPriceRefund?: number; totalPricePending?: number;
+          countRefundTransactions?: number; countPendingTransactions?: number; countRefundedReports?: number; totalDurationSecs?: number;
+          totalPrice?: number; currency?: string; totalInactivitySecs?: number; count: number;
+        };
+      }> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getTransactions');
     // Check
@@ -311,6 +321,10 @@ export default class TransactionStorage {
     if (params.ocpiSessionID) {
       filters['ocpiData.session.id'] = params.ocpiSessionID;
     }
+    // OICP ID
+    if (params.oicpSessionID) {
+      filters['oicpData.session.id'] = params.oicpSessionID;
+    }
     // Transaction
     if (!Utils.isEmptyArray(params.transactionIDs)) {
       filters._id = {
@@ -318,7 +332,7 @@ export default class TransactionStorage {
       };
     }
     // Issuer
-    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBooleanValue(params.issuer)) {
+    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBoolean(params.issuer)) {
       filters.issuer = params.issuer;
     }
     // User
@@ -334,8 +348,10 @@ export default class TransactionStorage {
       filters.tagID = { $in: params.tagIDs };
     }
     // Connector
-    if (params.connectorId) {
-      filters.connectorId = Utils.convertToInt(params.connectorId);
+    if (!Utils.isEmptyArray(params.connectorIDs)) {
+      filters.connectorId = {
+        $in: params.connectorIDs.map((connectorID) => Utils.convertToObjectID(connectorID))
+      };
     }
     // Date provided?
     if (params.startDateTime || params.endDateTime) {
@@ -522,7 +538,7 @@ export default class TransactionStorage {
     }
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactions', uniqueTimerID, transactionCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactions', uniqueTimerID, transactionCountMDB);
       return {
         count: transactionCountMDB ? transactionCountMDB.count : 0,
         stats: transactionCountMDB ? transactionCountMDB : {},
@@ -567,6 +583,13 @@ export default class TransactionStorage {
             $cond: { if: { $and: [{ $gt: ['$ocpiData', null] }, { $gt: ['$ocpiData.cdr', null] }] }, then: true, else: false }
           }
         }
+      });
+    }
+    // Transaction tag
+    if (params.withTag) {
+      DatabaseUtils.pushTagLookupInAggregation({
+        tenantID, aggregation: aggregation, asField: 'tag', localField: 'tagID',
+        foreignField: '_id', oneToOneCardinality: true
       });
     }
     // Charge Box
@@ -631,7 +654,7 @@ export default class TransactionStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactions', uniqueTimerID, transactionsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactions', uniqueTimerID, transactionsMDB);
     return {
       count: transactionCountMDB ? (transactionCountMDB.count === Constants.DB_RECORD_COUNT_CEIL ? -1 : transactionCountMDB.count) : 0,
       stats: transactionCountMDB ? transactionCountMDB : {},
@@ -640,8 +663,8 @@ export default class TransactionStorage {
   }
 
   public static async getRefundReports(tenantID: string,
-    params: { ownerID?: string; siteAdminIDs?: string[] },
-    dbParams: DbParams, projectFields?: string[]): Promise<{ count: number; result: RefundReport[] }> {
+      params: { ownerID?: string; siteAdminIDs?: string[] },
+      dbParams: DbParams, projectFields?: string[]): Promise<{ count: number; result: RefundReport[] }> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getTransactions');
     // Check
@@ -713,7 +736,7 @@ export default class TransactionStorage {
     }
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getRefundReports', uniqueTimerID, reportCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getRefundReports', uniqueTimerID, reportCountMDB);
       return {
         count: reportCountMDB ? reportCountMDB.count : 0,
         result: []
@@ -763,7 +786,7 @@ export default class TransactionStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getRefundReports', uniqueTimerID, reportsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getRefundReports', uniqueTimerID, reportsMDB);
     return {
       count: reportCountMDB ? (reportCountMDB.count === Constants.DB_RECORD_COUNT_CEIL ? -1 : reportCountMDB.count) : 0,
       result: reportsMDB
@@ -771,15 +794,21 @@ export default class TransactionStorage {
   }
 
   static async getTransactionsInError(tenantID: string,
-    params: {
-      search?: string; issuer?: boolean; userIDs?: string[]; chargeBoxIDs?: string[];
-      siteAreaIDs?: string[]; siteIDs?: string[]; startDateTime?: Date; endDateTime?: Date;
-      withChargeBoxes?: boolean; errorType?: TransactionInErrorType[];
-    }, projectFields?: string[]): Promise<DataResult<TransactionInError>> {
+      params: {
+        search?: string; issuer?: boolean; userIDs?: string[]; chargeBoxIDs?: string[];
+        siteAreaIDs?: string[]; siteIDs?: string[]; startDateTime?: Date; endDateTime?: Date;
+        withChargeBoxes?: boolean; errorType?: TransactionInErrorType[]; connectorIDs?: number[];
+      }, dbParams: DbParams, projectFields?: string[]): Promise<DataResult<TransactionInError>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getTransactionsInError');
     // Check
     await DatabaseUtils.checkTenant(tenantID);
+    // Clone before updating the values
+    dbParams = Utils.cloneObject(dbParams);
+    // Check Limit
+    dbParams.limit = Utils.checkRecordLimit(dbParams.limit);
+    // Check Skip
+    dbParams.skip = Utils.checkRecordSkip(dbParams.skip);
     // Build filters
     const match: any = { stop: { $exists: true } };
     // Filter?
@@ -791,7 +820,7 @@ export default class TransactionStorage {
       ];
     }
     // Issuer
-    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBooleanValue(params.issuer)) {
+    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBoolean(params.issuer)) {
       match.issuer = params.issuer;
     }
     // User / Site Admin
@@ -824,6 +853,12 @@ export default class TransactionStorage {
     if (params.siteIDs) {
       match.siteID = {
         $in: params.siteIDs.map((site) => Utils.convertToObjectID(site))
+      };
+    }
+    // Connectors
+    if (!Utils.isEmptyArray(params.connectorIDs)) {
+      match.connectorId = {
+        $in: params.connectorIDs.map((connectorID) => Utils.convertToObjectID(connectorID))
       };
     }
     // Create Aggregation
@@ -886,6 +921,21 @@ export default class TransactionStorage {
     // Set to null
     DatabaseUtils.clearFieldValueIfSubFieldIsNull(aggregation, 'stop', 'timestamp');
     DatabaseUtils.clearFieldValueIfSubFieldIsNull(aggregation, 'remotestop', 'timestamp');
+    // Sort
+    if (!dbParams.sort) {
+      dbParams.sort = { _id: 1 };
+    }
+    aggregation.push({
+      $sort: dbParams.sort
+    });
+    // Skip
+    aggregation.push({
+      $skip: dbParams.skip
+    });
+    // Limit
+    aggregation.push({
+      $limit: dbParams.limit
+    });
     // Project
     DatabaseUtils.projectFields(aggregation, projectFields);
     // Read DB
@@ -895,7 +945,7 @@ export default class TransactionStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactionsInError', uniqueTimerID, transactionsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getTransactionsInError', uniqueTimerID, transactionsMDB);
     return {
       count: transactionsMDB.length,
       result: transactionsMDB
@@ -903,15 +953,22 @@ export default class TransactionStorage {
   }
 
   public static async getTransaction(tenantID: string, id: number = Constants.UNKNOWN_NUMBER_ID,
-    projectFields?: string[]): Promise<Transaction> {
+      projectFields?: string[]): Promise<Transaction> {
     const transactionsMDB = await TransactionStorage.getTransactions(tenantID, {
       transactionIDs: [id]
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
     return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
   }
 
-  public static async getOCPITransaction(tenantID: string, sessionID: string): Promise<Transaction> {
-    const transactionsMDB = await TransactionStorage.getTransactions(tenantID, { ocpiSessionID: sessionID }, Constants.DB_PARAMS_SINGLE_RECORD);
+  public static async getOCPITransactionBySessionID(tenantID: string, sessionID: string): Promise<Transaction> {
+    const transactionsMDB = await TransactionStorage.getTransactions(tenantID,
+      { ocpiSessionID: sessionID }, Constants.DB_PARAMS_SINGLE_RECORD);
+    return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
+  }
+
+  public static async getOICPTransactionBySessionID(tenantID: string, sessionID: string): Promise<Transaction> {
+    const transactionsMDB = await TransactionStorage.getTransactions(tenantID,
+      { oicpSessionID: sessionID }, Constants.DB_PARAMS_SINGLE_RECORD);
     return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
   }
 
@@ -950,12 +1007,12 @@ export default class TransactionStorage {
       .aggregate(aggregation, { allowDiskUse: true })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getActiveTransaction', uniqueTimerID, transactionsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getActiveTransaction', uniqueTimerID, transactionsMDB);
     return transactionsMDB.length === 1 ? transactionsMDB[0] : null;
   }
 
-  public static async getLastTransaction(tenantID: string, chargeBoxID: string, connectorId: number,
-    params: { withChargingStation?: boolean; withUser?: boolean; }): Promise<Transaction> {
+  public static async getLastTransactionFromChargingStation(tenantID: string, chargeBoxID: string, connectorId: number,
+      params: { withChargingStation?: boolean; withUser?: boolean; }): Promise<Transaction> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getLastTransaction');
     // Check
@@ -1009,7 +1066,7 @@ export default class TransactionStorage {
       .aggregate(aggregation, { allowDiskUse: true })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getLastTransaction', uniqueTimerID, transactionsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getLastTransaction', uniqueTimerID, transactionsMDB);
     return transactionsMDB.length === 1 ? transactionsMDB[0] : null;
   }
 
@@ -1024,7 +1081,7 @@ export default class TransactionStorage {
       const id = Utils.getRandomIntSafe();
       existingTransaction = await TransactionStorage.getTransaction(tenantID, id);
       if (existingTransaction) {
-        Logging.logWarning({
+        await Logging.logWarning({
           tenantID: tenantID,
           module: MODULE_NAME, method: '_findAvailableID',
           action: ServerAction.TRANSACTION_STARTED,
@@ -1035,11 +1092,11 @@ export default class TransactionStorage {
       }
     } while (existingTransaction);
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, '_findAvailableID', uniqueTimerID);
+    await Logging.traceEnd(tenantID, MODULE_NAME, '_findAvailableID', uniqueTimerID);
   }
 
   public static async getNotStartedTransactions(tenantID: string,
-    params: { checkPastAuthorizeMins: number; sessionShouldBeStartedAfterMins: number }): Promise<DataResult<NotifySessionNotStarted>> {
+      params: { checkPastAuthorizeMins: number; sessionShouldBeStartedAfterMins: number }): Promise<DataResult<NotifySessionNotStarted>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getNotStartedTransactions');
     // Check Tenant
@@ -1147,7 +1204,7 @@ export default class TransactionStorage {
         })
         .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getNotStartedTransactions', uniqueTimerID, notifySessionNotStartedMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getNotStartedTransactions', uniqueTimerID, notifySessionNotStartedMDB);
     return {
       count: notifySessionNotStartedMDB.length,
       result: notifySessionNotStartedMDB
@@ -1226,10 +1283,16 @@ export default class TransactionStorage {
         return [
           {
             $match: {
-              $or: [
-                { 'billingData': { $exists: false } },
-                { 'billingData.invoiceID': { $exists: false } },
-                { 'billingData.invoiceID': { $eq: null } }
+              $and: [
+                { 'billingData.isTransactionBillingActivated': { $eq: true } },
+                {
+                  $or: [
+                    { 'billingData': { $exists: false } },
+                    { 'billingData.stop': { $exists: false } },
+                    { 'billingData.stop.invoiceID': { $exists: false } },
+                    { 'billingData.stop.invoiceID': { $eq: null } }
+                  ]
+                }
               ]
             }
           },

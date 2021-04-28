@@ -5,10 +5,8 @@ import Configuration from './Configuration';
 import Logging from './Logging';
 import { StatusCodes } from 'http-status-codes';
 
-const MODULE_NAME = 'AxiosFactory';
-
 export default class AxiosFactory {
-  private static axiosInstances: Map<string, AxiosInstance> = new Map();
+  private static axiosInstances: Map<string, AxiosInstance> = new Map<string, AxiosInstance>();
 
   // eslint-disable-next-line @typescript-eslint/no-empty-function
   private constructor() { }
@@ -31,19 +29,19 @@ export default class AxiosFactory {
       // Create
       axiosInstance = axios.create(instanceConfiguration.axiosConfig);
       // Add a Request interceptor
-      axiosInstance.interceptors.request.use((request: AxiosRequestConfig) => {
-        Logging.logAxiosRequest(tenantID, request);
+      axiosInstance.interceptors.request.use(async (request: AxiosRequestConfig) => {
+        await Logging.logAxiosRequest(tenantID, request);
         return request;
       }, async (error: AxiosError) => {
-        Logging.logAxiosError(tenantID, error);
+        await Logging.logAxiosError(tenantID, error);
         return Promise.reject(error);
       });
       // Add a Response interceptor
-      axiosInstance.interceptors.response.use((response: AxiosResponse) => {
-        Logging.logAxiosResponse(tenantID, response);
+      axiosInstance.interceptors.response.use(async (response: AxiosResponse) => {
+        await Logging.logAxiosResponse(tenantID, response);
         return response;
       }, async (error: AxiosError) => {
-        Logging.logAxiosError(tenantID, error);
+        await Logging.logAxiosError(tenantID, error);
         return Promise.reject(error);
       });
       // Add

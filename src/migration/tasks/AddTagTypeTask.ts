@@ -5,6 +5,7 @@ import { ServerAction } from '../../types/Server';
 import Tag from '../../types/Tag';
 import Tenant from '../../types/Tenant';
 import TenantStorage from '../../storage/mongodb/TenantStorage';
+import Utils from '../../utils/Utils';
 import global from '../../types/GlobalType';
 
 const MODULE_NAME = 'AddTagTypeTask';
@@ -23,15 +24,15 @@ export default class AddTagTypeTask extends MigrationTask {
       {
         'internal': { $exists: false }
       },
-      { $set: { 'internal': false, 'deleted': false } }
+      { $set: { 'internal': false } }
     );
     // Log in the default tenant
     if (result.modifiedCount > 0) {
-      Logging.logDebug({
+      await Logging.logDebug({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.MIGRATION,
         module: MODULE_NAME, method: 'migrateTenant',
-        message: `${result.modifiedCount} Tag(s) have been updated in Tenant '${tenant.name}'`
+        message: `${result.modifiedCount} Tag(s) have been updated in Tenant ${Utils.buildTenantName(tenant)}`
       });
     }
     // Remove tagIDs from User

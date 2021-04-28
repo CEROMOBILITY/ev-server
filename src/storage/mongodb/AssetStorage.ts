@@ -14,7 +14,7 @@ const MODULE_NAME = 'AssetStorage';
 
 export default class AssetStorage {
   public static async getAsset(tenantID: string, id: string = Constants.UNKNOWN_OBJECT_ID,
-    params: { withSiteArea?: boolean} = {}, projectFields?: string[]): Promise<Asset> {
+      params: { withSiteArea?: boolean } = {}, projectFields?: string[]): Promise<Asset> {
     const assetsMDB = await AssetStorage.getAssets(tenantID, {
       assetIDs: [id],
       withSiteArea: params.withSiteArea
@@ -31,7 +31,7 @@ export default class AssetStorage {
     const assetImageMDB = await global.database.getCollection<{ _id: ObjectID; image: string }>(tenantID, 'assetimages')
       .findOne({ _id: Utils.convertToObjectID(id) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getAssetImage', uniqueTimerID, assetImageMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getAssetImage', uniqueTimerID, assetImageMDB);
     return {
       id: id,
       image: assetImageMDB ? assetImageMDB.image : null
@@ -48,9 +48,13 @@ export default class AssetStorage {
       _id: assetToSave.id ? Utils.convertToObjectID(assetToSave.id) : new ObjectID(),
       name: assetToSave.name,
       siteAreaID: Utils.convertToObjectID(assetToSave.siteAreaID),
+      siteID: Utils.convertToObjectID(assetToSave.siteID),
       coordinates: Utils.containsGPSCoordinates(assetToSave.coordinates) ? assetToSave.coordinates.map(
         (coordinate) => Utils.convertToFloat(coordinate)) : [],
       assetType: assetToSave.assetType,
+      excludeFromSmartCharging: Utils.convertToBoolean(assetToSave.excludeFromSmartCharging),
+      fluctuationPercent:  Utils.convertToFloat(assetToSave.fluctuationPercent),
+      staticValueWatt: Utils.convertToFloat(assetToSave.staticValueWatt),
       dynamicAsset: assetToSave.dynamicAsset,
       issuer: Utils.convertToBoolean(assetToSave.issuer),
       connectionID: assetToSave.connectionID,
@@ -68,6 +72,7 @@ export default class AssetStorage {
       currentInstantWattsL1: Utils.convertToFloat(assetToSave.currentInstantWattsL1),
       currentInstantWattsL2: Utils.convertToFloat(assetToSave.currentInstantWattsL2),
       currentInstantWattsL3: Utils.convertToFloat(assetToSave.currentInstantWattsL3),
+      currentStateOfCharge: Utils.convertToFloat(assetToSave.currentStateOfCharge),
     };
     if (assetToSave.lastConsumption) {
       assetMDB.lastConsumption = {
@@ -88,14 +93,14 @@ export default class AssetStorage {
       await AssetStorage.saveAssetImage(tenantID, assetMDB._id.toHexString(), assetToSave.image);
     }
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveAsset', uniqueTimerID, assetMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveAsset', uniqueTimerID, assetMDB);
     return assetMDB._id.toHexString();
   }
 
   public static async getAssets(tenantID: string,
-    params: { search?: string; assetIDs?: string[]; siteAreaIDs?: string[]; withSiteArea?: boolean;
-      withNoSiteArea?: boolean; dynamicOnly?: boolean } = {},
-    dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Asset>> {
+      params: { search?: string; assetIDs?: string[]; siteAreaIDs?: string[]; siteIDs?: string[]; withSiteArea?: boolean;
+        withNoSiteArea?: boolean; dynamicOnly?: boolean; issuer?: boolean; } = {},
+      dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Asset>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getAssets');
     // Check Tenant
@@ -112,9 +117,8 @@ export default class AssetStorage {
     const filters: FilterParams = {};
     // Search
     if (params.search) {
-      const searchRegex = Utils.escapeSpecialCharsInRegex(params.search);
       filters.$or = [
-        { 'name': { $regex: searchRegex, $options: 'i' } },
+        { 'name': { $regex: params.search, $options: 'i' } },
       ];
     }
     // With no Site Area
@@ -125,13 +129,22 @@ export default class AssetStorage {
         $in: params.siteAreaIDs.map((id) => Utils.convertToObjectID(id))
       };
     }
+    // Issuer
+    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBoolean(params.issuer)) {
+      filters.issuer = params.issuer;
+    }
+    // Sites
+    if (!Utils.isEmptyArray(params.siteIDs)) {
+      filters.siteID = {
+        $in: params.siteIDs.map((siteID) => Utils.convertToObjectID(siteID))
+      };
+    }
     // Dynamic Asset
     if (params.dynamicOnly) {
       filters.dynamicAsset = true;
     }
     // Limit on Asset for Basic Users
     if (!Utils.isEmptyArray(params.assetIDs)) {
-      // Build filter
       filters._id = {
         $in: params.assetIDs.map((assetID) => Utils.convertToObjectID(assetID))
       };
@@ -154,7 +167,7 @@ export default class AssetStorage {
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
       // Return only the count
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getAssets', uniqueTimerID, assetsCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getAssets', uniqueTimerID, assetsCountMDB);
       return {
         count: (assetsCountMDB.length > 0 ? assetsCountMDB[0].count : 0),
         result: []
@@ -199,7 +212,7 @@ export default class AssetStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getAssets', uniqueTimerID, assetsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getAssets', uniqueTimerID, assetsMDB);
     return {
       count: (assetsCountMDB.length > 0 ?
         (assetsCountMDB[0].count === Constants.DB_RECORD_COUNT_CEIL ? -1 : assetsCountMDB[0].count) : 0),
@@ -208,8 +221,8 @@ export default class AssetStorage {
   }
 
   public static async getAssetsInError(tenantID: string,
-    params: { search?: string; siteAreaIDs?: string[]; errorType?: string[] } = {},
-    dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Asset>> {
+      params: { search?: string; siteAreaIDs?: string[]; siteIDs?: string[]; errorType?: string[] } = {},
+      dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Asset>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getAssetsInError');
     // Check Tenant
@@ -223,13 +236,15 @@ export default class AssetStorage {
     // Set the filters
     const filters: FilterParams = {};
     if (params.search) {
-      const searchRegex = Utils.escapeSpecialCharsInRegex(params.search);
       filters.$or = [
-        { 'name': { $regex: searchRegex, $options: 'i' } },
+        { 'name': { $regex: params.search, $options: 'i' } },
       ];
     }
     if (!Utils.isEmptyArray(params.siteAreaIDs)) {
       filters.siteAreaID = { $in: params.siteAreaIDs.map((id) => Utils.convertToObjectID(id)) };
+    }
+    if (!Utils.isEmptyArray(params.siteIDs)) {
+      filters.siteID = { $in: params.siteIDs.map((id) => Utils.convertToObjectID(id)) };
     }
     // Create Aggregation
     const aggregation = [];
@@ -283,7 +298,7 @@ export default class AssetStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getAssetsInError', uniqueTimerID, assetsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getAssetsInError', uniqueTimerID, assetsMDB);
     // Ok
     return {
       count: assetsMDB.length,
@@ -303,7 +318,7 @@ export default class AssetStorage {
     await global.database.getCollection<any>(tenantID, 'assetimages')
       .findOneAndDelete({ '_id': Utils.convertToObjectID(id) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteAsset', uniqueTimerID, { id });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteAsset', uniqueTimerID, { id });
   }
 
   private static async saveAssetImage(tenantID: string, assetID: string, assetImageToSave: string): Promise<void> {
@@ -317,7 +332,7 @@ export default class AssetStorage {
       { $set: { image: assetImageToSave } },
       { upsert: true });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveAssetImage', uniqueTimerID, assetImageToSave);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveAssetImage', uniqueTimerID, assetImageToSave);
   }
 
   private static getAssetInErrorFacet(errorType: string) {

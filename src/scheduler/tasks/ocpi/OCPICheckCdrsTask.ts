@@ -30,52 +30,53 @@ export default class OCPICheckCdrsTask extends SchedulerTask {
       }
     } catch (error) {
       // Log error
-      Logging.logActionExceptionMessage(tenant.id, ServerAction.OCPI_CHECK_CDRS, error);
+      await Logging.logActionExceptionMessage(tenant.id, ServerAction.OCPI_CHECK_CDRS, error);
     }
   }
 
   private async processOCPIEndpoint(tenant: Tenant, ocpiEndpoint: OCPIEndpoint): Promise<void> {
     // Get the lock
-    const ocpiLock = await LockingHelper.createOCPICheckCpoCdrsLock(tenant.id, ocpiEndpoint);
+    const ocpiLock = await LockingHelper.createOCPICheckCdrsLock(tenant.id, ocpiEndpoint);
     if (ocpiLock) {
       try {
         // Check if OCPI endpoint is registered
         if (ocpiEndpoint.status !== OCPIRegistrationStatus.REGISTERED) {
-          Logging.logDebug({
+          await Logging.logDebug({
             tenantID: tenant.id,
             module: MODULE_NAME, method: 'processOCPIEndpoint',
             action: ServerAction.OCPI_CHECK_CDRS,
-            message: `The OCPI Endpoint ${ocpiEndpoint.name} is not registered. Skipping the ocpiendpoint.`
-          });
-          return;
-        } else if (!ocpiEndpoint.backgroundPatchJob) {
-          Logging.logDebug({
-            tenantID: tenant.id,
-            module: MODULE_NAME, method: 'processOCPIEndpoint',
-            action: ServerAction.OCPI_CHECK_CDRS,
-            message: `The OCPI Endpoint ${ocpiEndpoint.name} is inactive.`
+            message: `The OCPI endpoint '${ocpiEndpoint.name}' is not registered. Skipping the OCPI endpoint.`
           });
           return;
         }
-        Logging.logInfo({
+        if (!ocpiEndpoint.backgroundPatchJob) {
+          await Logging.logDebug({
+            tenantID: tenant.id,
+            module: MODULE_NAME, method: 'processOCPIEndpoint',
+            action: ServerAction.OCPI_CHECK_CDRS,
+            message: `The OCPI endpoint '${ocpiEndpoint.name}' is inactive.`
+          });
+          return;
+        }
+        await Logging.logInfo({
           tenantID: tenant.id,
           module: MODULE_NAME, method: 'processOCPIEndpoint',
           action: ServerAction.OCPI_CHECK_CDRS,
-          message: `The check cdrs process for endpoint ${ocpiEndpoint.name} is being processed`
+          message: `The check CDRs process for endpoint '${ocpiEndpoint.name}' is being processed`
         });
         // Build OCPI Client
         const ocpiClient = await OCPIClientFactory.getCpoOcpiClient(tenant, ocpiEndpoint);
         const result = await ocpiClient.checkCdrs();
-        Logging.logInfo({
+        await Logging.logInfo({
           tenantID: tenant.id,
           module: MODULE_NAME, method: 'processOCPIEndpoint',
           action: ServerAction.OCPI_CHECK_CDRS,
-          message: `The check cdrs process for endpoint ${ocpiEndpoint.name} is completed`,
+          message: `The check CDRs process for endpoint '${ocpiEndpoint.name}' is completed`,
           detailedMessages: { result }
         });
       } catch (error) {
         // Log error
-        Logging.logActionExceptionMessage(tenant.id, ServerAction.OCPI_CHECK_CDRS, error);
+        await Logging.logActionExceptionMessage(tenant.id, ServerAction.OCPI_CHECK_CDRS, error);
       } finally {
         // Release the lock
         await LockingManager.release(ocpiLock);

@@ -28,7 +28,7 @@ export default class RecomputeAllTransactionsConsumptionsTask extends MigrationT
       inError: 0,
       inSuccess: 0,
     };
-    const timeTotalFrom = new Date().getTime();
+    const startTime = new Date().getTime();
     // Get transactions
     const transactionsMDB = await global.database.getCollection<any>(tenant.id, 'transactions')
       .aggregate([
@@ -42,56 +42,60 @@ export default class RecomputeAllTransactionsConsumptionsTask extends MigrationT
           $project: { '_id': 1 }
         }
       ]).toArray();
-    if (transactionsMDB.length > 0) {
-      Logging.logInfo({
+    if (!Utils.isEmptyArray(transactionsMDB)) {
+      void Logging.logInfo({
         tenantID: Constants.DEFAULT_TENANT,
         action: ServerAction.MIGRATION,
         module: MODULE_NAME, method: 'migrateTenant',
-        message: `${transactionsMDB.length} Transaction(s) are going to be recomputed in Tenant '${tenant.name}' ('${tenant.subdomain}')...`,
+        message: `${transactionsMDB.length} Transaction(s) are going to be recomputed in Tenant ${Utils.buildTenantName(tenant)}...`,
       });
       await Promise.map(transactionsMDB, async (transactionMDB) => {
         try {
           // Recompute consumption
           const timeFrom = new Date().getTime();
-          const nbrOfConsumptions = await OCPPUtils.rebuildTransactionConsumptions(tenant.id, transactionMDB._id);
+          // Get the Transaction
+          const transaction = await TransactionStorage.getTransaction(tenant.id, transactionMDB._id);
+          // Rebuild consumptions
+          // FIXME: Power limitation will be lost in consumptions (to check the implementation)
+          const nbrOfConsumptions = await OCPPUtils.rebuildTransactionConsumptions(tenant.id, transaction);
           const durationSecs = Math.trunc((new Date().getTime() - timeFrom) / 1000);
           consumptionsUpdated.inSuccess++;
           if (nbrOfConsumptions > 0) {
-            Logging.logDebug({
+            void Logging.logDebug({
               tenantID: Constants.DEFAULT_TENANT,
               action: ServerAction.MIGRATION,
               module: MODULE_NAME, method: 'migrateTenant',
-              message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Processed Transaction ID '${transactionMDB._id}' with ${nbrOfConsumptions} consumptions in ${durationSecs}s in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
+              message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Processed Transaction ID '${transactionMDB._id}' with ${nbrOfConsumptions} consumptions in ${durationSecs}s in Tenant ${Utils.buildTenantName(tenant)}`,
             });
           } else {
             // Delete transaction
             await TransactionStorage.deleteTransaction(tenant.id, transactionMDB._id);
-            Logging.logDebug({
+            void Logging.logDebug({
               tenantID: Constants.DEFAULT_TENANT,
               action: ServerAction.MIGRATION,
               module: MODULE_NAME, method: 'migrateTenant',
-              message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Deleted Transaction ID '${transactionMDB._id}' with no consumption in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
+              message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Deleted Transaction ID '${transactionMDB._id}' with no consumption in Tenant ${Utils.buildTenantName(tenant)}`,
             });
           }
         } catch (error) {
           consumptionsUpdated.inError++;
-          Logging.logError({
+          void Logging.logError({
             tenantID: Constants.DEFAULT_TENANT,
             action: ServerAction.MIGRATION,
             module: MODULE_NAME, method: 'migrateTenant',
-            message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Cannot recompute the consumptions of Transaction ID '${transactionMDB._id}' in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
+            message: `> ${consumptionsUpdated.inError + consumptionsUpdated.inSuccess}/${transactionsMDB.length} - Cannot recompute the consumptions of Transaction ID '${transactionMDB._id}' in Tenant ${Utils.buildTenantName(tenant)}`,
             detailedMessages: { error: error.message, stack: error.stack }
           });
         }
       }, { concurrency: 5 }).then(() => {
-        const totalDurationSecs = Math.trunc((new Date().getTime() - timeTotalFrom) / 1000);
+        const totalDurationSecs = Math.trunc((new Date().getTime() - startTime) / 1000);
         // Log in the default tenant
-        Logging.logActionsResponse(Constants.DEFAULT_TENANT, ServerAction.MIGRATION,
+        void Logging.logActionsResponse(Constants.DEFAULT_TENANT, ServerAction.MIGRATION,
           MODULE_NAME, 'migrateTenant', consumptionsUpdated,
-          `{{inSuccess}} transaction(s) were successfully processed in ${totalDurationSecs} secs in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
-          `{{inError}} transaction(s) failed to be processed in ${totalDurationSecs} secs in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
-          `{{inSuccess}} transaction(s) were successfully processed in ${totalDurationSecs} secs and {{inError}} failed to be processed in Tenant '${tenant.name}' ('${tenant.subdomain}')`,
-          `All the transactions are up to date in Tenant '${tenant.name}' ('${tenant.subdomain}')`
+          `{{inSuccess}} transaction(s) were successfully processed in ${totalDurationSecs} secs in Tenant ${Utils.buildTenantName(tenant)}`,
+          `{{inError}} transaction(s) failed to be processed in ${totalDurationSecs} secs in Tenant ${Utils.buildTenantName(tenant)}`,
+          `{{inSuccess}} transaction(s) were successfully processed in ${totalDurationSecs} secs and {{inError}} failed to be processed in Tenant ${Utils.buildTenantName(tenant)}`,
+          `All the transactions are up to date in Tenant ${Utils.buildTenantName(tenant)}`
         );
       });
     }

@@ -7,6 +7,8 @@ import Configuration from '../../../utils/Configuration';
 import Constants from '../../../utils/Constants';
 import Logging from '../../../utils/Logging';
 import { ServerAction } from '../../../types/Server';
+import Utils from '../../../utils/Utils';
+import { Voltage } from '../../../types/ChargingStation';
 
 const MODULE_NAME = 'EVDatabaseCarIntegration';
 
@@ -21,7 +23,7 @@ export default class EVDatabaseCarIntegration extends CarIntegration {
   public async getCarCatalogs(): Promise<CarCatalog[]> {
     const evDatabaseConfig = Configuration.getEVDatabaseConfig();
     if (!evDatabaseConfig) {
-      Logging.logWarning({
+      await Logging.logWarning({
         tenantID: Constants.DEFAULT_TENANT,
         source: Constants.CENTRAL_SERVER,
         message: 'No configuration is provided to access the EVDatabase system, skipping',
@@ -43,7 +45,7 @@ export default class EVDatabaseCarIntegration extends CarIntegration {
           evsePhaseVolt: data.Charge_Standard_Table[chargeStandard].EVSE_PhaseVolt,
           evsePhaseAmp: data.Charge_Standard_Table[chargeStandard].EVSE_PhaseAmp,
           evsePhase: data.Charge_Standard_Table[chargeStandard].EVSE_Phase,
-          evsePhaseVoltCalculated: data.Charge_Standard_Table[chargeStandard].EVSE_Phase === 3 ? 400 : data.Charge_Standard_Table[chargeStandard].EVSE_PhaseVolt,
+          evsePhaseVoltCalculated: data.Charge_Standard_Table[chargeStandard].EVSE_Phase === 3 ? Voltage.VOLTAGE_400 : data.Charge_Standard_Table[chargeStandard].EVSE_PhaseVolt,
           chargePhaseVolt: data.Charge_Standard_Table[chargeStandard].Charge_PhaseVolt,
           chargePhaseAmp: data.Charge_Standard_Table[chargeStandard].Charge_PhaseAmp,
           chargePhase: data.Charge_Standard_Table[chargeStandard].Charge_Phase,
@@ -197,9 +199,9 @@ export default class EVDatabaseCarIntegration extends CarIntegration {
         euroNCAPChild: data.EuroNCAP_Child,
         euroNCAPVRU: data.EuroNCAP_VRU,
         euroNCAPSA: data.EuroNCAP_SA,
-        relatedVehicleIDSuccesor: data.Related_Vehicle_ID_Succesor,
+        relatedVehicleIDSuccessor: data.Related_Vehicle_ID_Successor,
         eVDBDetailURL: data.EVDB_Detail_URL,
-        imageURLs: data.Images,
+        imageURLs: data.Images ? (!Utils.isEmptyArray(data.Images) ? data.Images : [data.Images]) : [],
         images: [],
         videos: data.Videos,
       };
@@ -211,14 +213,14 @@ export default class EVDatabaseCarIntegration extends CarIntegration {
   public async getCarCatalogThumb(carCatalog: CarCatalog): Promise<string> {
     let image: string;
     // Create the car thumb using the first image URL
-    if (carCatalog.imageURLs && carCatalog.imageURLs.length > 0) {
+    if (!Utils.isEmptyArray(carCatalog.imageURLs)) {
       try {
         const imageURL = this.convertToThumbImage(carCatalog.imageURLs[0]);
         const response = await this.axiosInstance.get(imageURL, { responseType: 'arraybuffer' });
         const base64Image = Buffer.from(response.data).toString('base64');
         image = 'data:' + response.headers['content-type'] + ';base64,' + base64Image;
       } catch (error) {
-        Logging.logError({
+        await Logging.logError({
           tenantID: Constants.DEFAULT_TENANT,
           source: Constants.CENTRAL_SERVER,
           action: ServerAction.SYNCHRONIZE_CAR_CATALOGS,
@@ -231,27 +233,22 @@ export default class EVDatabaseCarIntegration extends CarIntegration {
     return image;
   }
 
-  public async getCarCatalogImages(carCatalog: CarCatalog): Promise<string[]> {
-    const images: string[] = [];
-    // Retrieve all images
-    for (const imageURL of carCatalog.imageURLs) {
-      try {
-        const response = await this.axiosInstance.get(imageURL, { responseType: 'arraybuffer' });
-        const base64Image = Buffer.from(response.data).toString('base64');
-        const encodedImage = 'data:' + response.headers['content-type'] + ';base64,' + base64Image;
-        images.push(encodedImage);
-      } catch (error) {
-        Logging.logError({
-          tenantID: Constants.DEFAULT_TENANT,
-          source: Constants.CENTRAL_SERVER,
-          action: ServerAction.SYNCHRONIZE_CAR_CATALOGS,
-          module: MODULE_NAME, method: 'getCarCatalogImages',
-          message: `${carCatalog.id} - ${carCatalog.vehicleMake} - ${carCatalog.vehicleModel} - Cannot retrieve image from URL '${imageURL}'`,
-          detailedMessages: { error: error.message, stack: error.stack }
-        });
-      }
+  public async getCarCatalogImage(carCatalog: CarCatalog, imageURL:string): Promise<string> {
+    try {
+      const response = await this.axiosInstance.get(imageURL, { responseType: 'arraybuffer' });
+      const base64Image = Buffer.from(response.data).toString('base64');
+      const encodedImage = 'data:' + response.headers['content-type'] + ';base64,' + base64Image;
+      return encodedImage;
+    } catch (error) {
+      await Logging.logError({
+        tenantID: Constants.DEFAULT_TENANT,
+        source: Constants.CENTRAL_SERVER,
+        action: ServerAction.SYNCHRONIZE_CAR_CATALOGS,
+        module: MODULE_NAME, method: 'getCarCatalogImage',
+        message: `${carCatalog.id} - ${carCatalog.vehicleMake} - ${carCatalog.vehicleModel} - Cannot retrieve image from URL '${imageURL}'`,
+        detailedMessages: { error: error.message, stack: error.stack }
+      });
     }
-    return images;
   }
 
   private convertToThumbImage(image: string): string {

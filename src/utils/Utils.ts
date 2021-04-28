@@ -1,9 +1,10 @@
-import { AnalyticsSettingsType, AssetSettingsType, BillingSettingsType, PricingSettingsType, RefundSettingsType, RoamingSettingsType, SettingDBContent, SmartChargingContentType } from '../types/Setting';
+import { AnalyticsSettingsType, AssetSettingsType, BillingSettingsType, CarConnectorSettingsType, CryptoKeyProperties, PricingSettingsType, RefundSettingsType, RoamingSettingsType, SettingDBContent, SmartChargingContentType } from '../types/Setting';
 import { Car, CarCatalog } from '../types/Car';
-import { ChargePointStatus, OCPPProtocol, OCPPVersion } from '../types/ocpp/OCPPServer';
-import ChargingStation, { ChargePoint, ChargingStationEndpoint, Connector, ConnectorCurrentLimitSource, CurrentType } from '../types/ChargingStation';
+import { ChargePointStatus, OCPPProtocol, OCPPVersion, OCPPVersionURLPath } from '../types/ocpp/OCPPServer';
+import ChargingStation, { ChargePoint, ChargingStationEndpoint, Connector, ConnectorCurrentLimitSource, CurrentType, Voltage } from '../types/ChargingStation';
 import Transaction, { CSPhasesUsed, InactivityStatus } from '../types/Transaction';
 import User, { UserRole, UserStatus } from '../types/User';
+import crypto, { CipherGCMTypes } from 'crypto';
 
 import Address from '../types/Address';
 import { AxiosError } from 'axios';
@@ -12,7 +13,9 @@ import Configuration from './Configuration';
 import ConnectorStats from '../types/ConnectorStats';
 import Constants from './Constants';
 import Cypher from './Cypher';
+import { Decimal } from 'decimal.js';
 import { ObjectID } from 'mongodb';
+import PerformanceRecord from '../types/Performance';
 import QRCode from 'qrcode';
 import { Request } from 'express';
 import { ServerAction } from '../types/Server';
@@ -20,19 +23,21 @@ import Tag from '../types/Tag';
 import Tenant from '../types/Tenant';
 import TenantComponents from '../types/TenantComponents';
 import UserToken from '../types/UserToken';
+import { WebSocketCloseEventStatusString } from '../types/WebSocket';
 import _ from 'lodash';
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
+import cfenv from 'cfenv';
+import cluster from 'cluster';
 import fs from 'fs';
+import global from '../types/GlobalType';
 import http from 'http';
 import moment from 'moment';
+import os from 'os';
 import passwordGenerator from 'password-generator';
 import path from 'path';
 import tzlookup from 'tz-lookup';
 import { v4 as uuid } from 'uuid';
 import validator from 'validator';
-
-const MODULE_NAME = 'Utils';
 
 export default class Utils {
   public static getConnectorsFromChargePoint(chargingStation: ChargingStation, chargePoint: ChargePoint): Connector[] {
@@ -47,6 +52,17 @@ export default class Utils {
       }
     }
     return connectors;
+  }
+
+  public static convertAddressToOneLine(address: Address): string {
+    const oneLineAddress: string[] = [];
+    if (address?.address1) {
+      oneLineAddress.push(address.address1);
+    }
+    if (address?.address2) {
+      oneLineAddress.push(address.address2);
+    }
+    return oneLineAddress.join(' ');
   }
 
   public static handleAxiosError(axiosError: AxiosError, urlRequest: string, action: ServerAction, module: string, method: string): void {
@@ -153,7 +169,7 @@ export default class Utils {
   }
 
   public static async executePromiseWithTimeout<T>(timeoutMs: number, promise: Promise<T>, failureMessage: string): Promise<T> {
-    let timeoutHandle;
+    let timeoutHandle: NodeJS.Timeout;
     const timeoutPromise = new Promise<never>((resolve, reject) => {
       timeoutHandle = setTimeout(() => reject(new Error(failureMessage)), timeoutMs);
     });
@@ -166,7 +182,7 @@ export default class Utils {
     });
   }
 
-  public static async sleep(ms): Promise<void> {
+  public static async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
@@ -185,19 +201,19 @@ export default class Utils {
     return InactivityStatus.ERROR;
   }
 
-  public static objectHasProperty(object: any, key: string): boolean {
-    return _.has(object, key);
+  public static objectHasProperty(obj: any, key: string): boolean {
+    return _.has(obj, key);
   }
 
-  public static isBooleanValue(value: boolean): boolean {
-    return _.isBoolean(value);
+  public static isBoolean(obj: any): boolean {
+    return typeof obj === 'boolean';
   }
 
   public static generateUUID(): string {
     return uuid();
   }
 
-  static generateTagID(name: string, firstName: string): string {
+  public static generateTagID(name: string, firstName: string): string {
     let tagID = '';
     if (name && name.length > 0) {
       tagID = name[0].toUpperCase();
@@ -222,6 +238,11 @@ export default class Utils {
 
   public static isUndefined(obj: any): boolean {
     return typeof obj === 'undefined';
+  }
+
+  public static isNullOrUndefined(obj: any): boolean {
+    // eslint-disable-next-line no-eq-null, eqeqeq
+    return obj == null;
   }
 
   public static getConnectorStatusesFromChargingStations(chargingStations: ChargingStation[]): ConnectorStats {
@@ -297,6 +318,7 @@ export default class Utils {
 
   /**
    * Map user locale (en_US, fr_FR...) to language (en, fr...)
+   *
    * @param locale
    */
   public static getLanguageFromLocale(locale: string): string {
@@ -310,6 +332,7 @@ export default class Utils {
 
   /**
    * Map language (en, fr...) to user locale (en_US, fr_FR...)
+   *
    * @param language
    */
   static getLocaleFromLanguage(language: string): string {
@@ -321,6 +344,8 @@ export default class Utils {
       return 'de_DE';
     } else if (language === 'pt') {
       return 'pt_PT';
+    } else if (language === 'it') {
+      return 'it_IT';
     }
     return Constants.DEFAULT_LOCALE;
   }
@@ -336,12 +361,32 @@ export default class Utils {
     }
   }
 
+  public static getWebSocketCloseEventStatusString(code: number): string {
+    if (code >= 0 && code <= 999) {
+      return '(Unused)';
+    } else if (code >= 1016) {
+      if (code <= 1999) {
+        return '(For WebSocket standard)';
+      } else if (code <= 2999) {
+        return '(For WebSocket extensions)';
+      } else if (code <= 3999) {
+        return '(For libraries and frameworks)';
+      } else if (code <= 4999) {
+        return '(For applications)';
+      }
+    }
+    if (!Utils.isUndefined(WebSocketCloseEventStatusString[code])) {
+      return WebSocketCloseEventStatusString[code];
+    }
+    return '(Unknown)';
+  }
+
   public static convertToBoolean(value: any): boolean {
     let result = false;
     // Check boolean
     if (value) {
       // Check the type
-      if (typeof value === 'boolean') {
+      if (Utils.isBoolean(value)) {
         // Already a boolean
         result = value;
       } else {
@@ -366,10 +411,6 @@ export default class Utils {
 
   public static replaceSpecialCharsInCSVValueParam(value: string): string {
     return value ? value.replace(/\n/g, '') : '';
-  }
-
-  public static escapeSpecialCharsInRegex(value: string): string {
-    return value ? value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
   }
 
   public static isEmptyJSon(document: any): boolean {
@@ -441,15 +482,12 @@ export default class Utils {
       // Create Object
       changedValue = parseFloat(value);
     }
+    // Fix float
     return changedValue;
   }
 
   public static computeSimplePrice(pricePerkWh: number, consumptionWh: number): number {
-    return Utils.truncTo(pricePerkWh * (consumptionWh / 1000), 6);
-  }
-
-  public static computeSimpleRoundedPrice(pricePerkWh: number, consumptionWh: number): number {
-    return Utils.truncTo(pricePerkWh * (consumptionWh / 1000), 2);
+    return Utils.createDecimal(pricePerkWh).mul(Utils.convertToFloat(consumptionWh)).div(1000).toNumber();
   }
 
   public static convertUserToObjectID(user: User | UserToken | string): ObjectID | null {
@@ -474,7 +512,7 @@ export default class Utils {
   public static convertAmpToWatt(chargingStation: ChargingStation, chargePoint: ChargePoint, connectorID = 0, ampValue: number): number {
     const voltage = Utils.getChargingStationVoltage(chargingStation, chargePoint, connectorID);
     if (voltage) {
-      return voltage * ampValue;
+      return Utils.createDecimal(voltage).mul(ampValue).toNumber();
     }
     return 0;
   }
@@ -482,9 +520,23 @@ export default class Utils {
   public static convertWattToAmp(chargingStation: ChargingStation, chargePoint: ChargePoint, connectorID = 0, wattValue: number): number {
     const voltage = Utils.getChargingStationVoltage(chargingStation, chargePoint, connectorID);
     if (voltage) {
-      return wattValue / voltage;
+      return Utils.createDecimal(wattValue).div(voltage).toNumber();
     }
     return 0;
+  }
+
+  public static convertWattHourToKiloWattHour(wattHours: number, decimalPlaces?: number): number {
+    if (decimalPlaces) {
+      return Utils.truncTo((Utils.createDecimal(wattHours).div(1000)).toNumber(), decimalPlaces);
+    }
+    return Utils.convertToFloat((Utils.createDecimal(wattHours).div(1000)));
+  }
+
+  public static createDecimal(value: number): Decimal {
+    if (Utils.isNullOrUndefined(value)) {
+      value = 0;
+    }
+    return new Decimal(value);
   }
 
   public static getChargePointFromID(chargingStation: ChargingStation, chargePointID: number): ChargePoint {
@@ -610,7 +662,7 @@ export default class Utils {
     return 1;
   }
 
-  public static getChargingStationVoltage(chargingStation: ChargingStation, chargePoint?: ChargePoint, connectorId = 0): number {
+  public static getChargingStationVoltage(chargingStation: ChargingStation, chargePoint?: ChargePoint, connectorId = 0): Voltage {
     if (chargingStation) {
       // Check at charging station level
       if (chargingStation.voltage) {
@@ -649,7 +701,8 @@ export default class Utils {
         }
       }
     }
-    return 0;
+    // Return a sensible default value to avoid divide by zero
+    return Voltage.VOLTAGE_230;
   }
 
   public static getChargingStationCurrentType(chargingStation: ChargingStation, chargePoint: ChargePoint, connectorId = 0): CurrentType {
@@ -739,7 +792,7 @@ export default class Utils {
     return Math.round(totalAmps / numberOfConnectedPhases);
   }
 
-  public static getChargingStationAmperageLimit(chargingStation: ChargingStation, chargePoint: ChargePoint, connectorId = 0): number {
+  public static getChargingStationAmperageLimit(chargingStation: ChargingStation, chargePoint?: ChargePoint, connectorId = 0): number {
     let amperageLimit = 0;
     if (chargingStation) {
       if (connectorId > 0) {
@@ -772,10 +825,15 @@ export default class Utils {
         }
       }
     }
+    const amperageMax = Utils.getChargingStationAmperage(chargingStation, chargePoint, connectorId);
+    // Check and default
+    if (amperageLimit === 0 || amperageLimit > amperageMax) {
+      amperageLimit = amperageMax;
+    }
     return amperageLimit;
   }
 
-  public static isEmptyArray(array: any[]): boolean {
+  public static isEmptyArray(array: any): boolean {
     if (!array) {
       return true;
     }
@@ -888,22 +946,41 @@ export default class Utils {
 
   public static buildOCPPServerURL(tenantID: string, ocppVersion: OCPPVersion, ocppProtocol: OCPPProtocol, token?: string): string {
     let ocppUrl: string;
-    const version = ocppVersion === OCPPVersion.VERSION_16 ? 'OCPP16' : 'OCPP15';
-    switch (ocppProtocol) {
-      case OCPPProtocol.JSON:
-        ocppUrl = `${Configuration.getJsonEndpointConfig().baseUrl}/OCPP16/${tenantID}`;
-        if (token) {
-          ocppUrl += `/${token}`;
-        }
-        return ocppUrl;
-      case OCPPProtocol.SOAP:
-      default:
-        ocppUrl = `${Configuration.getWSDLEndpointConfig().baseUrl}/${version}?TenantID=${tenantID}`;
-        if (token) {
-          ocppUrl += `%26Token=${token}`;
-        }
-        return ocppUrl;
+    if (Configuration.getJsonEndpointConfig().baseUrl && ocppProtocol === OCPPProtocol.JSON) {
+      ocppUrl = `${Configuration.getJsonEndpointConfig().baseUrl}/${Utils.getOCPPServerVersionURLPath(ocppVersion)}/${tenantID}`;
+      if (token) {
+        ocppUrl += `/${token}`;
+      }
+    } else if (Configuration.getWSDLEndpointConfig()?.baseUrl && ocppProtocol === OCPPProtocol.SOAP) {
+      ocppUrl = `${Configuration.getWSDLEndpointConfig().baseUrl}/${Utils.getOCPPServerVersionURLPath(ocppVersion)}?TenantID=${tenantID}`;
+      if (token) {
+        ocppUrl += `%26Token=${token}`;
+      }
     }
+    return ocppUrl;
+  }
+
+  public static buildOCPPServerSecureURL(tenantID: string, ocppVersion: OCPPVersion, ocppProtocol: OCPPProtocol, token?: string): string {
+    let ocppUrl: string;
+    if (Configuration.getJsonEndpointConfig().baseSecureUrl && ocppProtocol === OCPPProtocol.JSON) {
+      ocppUrl = `${Configuration.getJsonEndpointConfig().baseSecureUrl}/${Utils.getOCPPServerVersionURLPath(ocppVersion)}/${tenantID}`;
+      if (token) {
+        ocppUrl += `/${token}`;
+      }
+    } else if (Configuration.getWSDLEndpointConfig()?.baseSecureUrl && ocppProtocol === OCPPProtocol.SOAP) {
+      ocppUrl = `${Configuration.getWSDLEndpointConfig().baseSecureUrl}/${Utils.getOCPPServerVersionURLPath(ocppVersion)}?TenantID=${tenantID}`;
+      if (token) {
+        ocppUrl += `%26Token=${token}`;
+      }
+    }
+    return ocppUrl;
+  }
+
+  public static getOCPPServerVersionURLPath(ocppVersion: OCPPVersion): string {
+    if (!Utils.isUndefined(OCPPVersionURLPath[ocppVersion])) {
+      return OCPPVersionURLPath[ocppVersion];
+    }
+    return 'UNKNOWN';
   }
 
   public static buildEvseTagURL(tenantSubdomain: string, tag: Tag): string {
@@ -928,6 +1005,10 @@ export default class Utils {
 
   public static buildEvseBillingDownloadInvoicesURL(tenantSubdomain: string, invoiceID: string): string {
     return `${Utils.buildEvseURL(tenantSubdomain)}/invoices?InvoiceID=${invoiceID}#all`;
+  }
+
+  public static buildEvseUserToVerifyURL(tenantSubdomain: string, userId: string): string {
+    return `${Utils.buildEvseURL(tenantSubdomain)}/users/${userId}`;
   }
 
   public static hideShowMessage(message: string): string {
@@ -987,6 +1068,9 @@ export default class Utils {
   }
 
   public static cloneObject<T>(object: T): T {
+    if (Utils.isNullOrUndefined(object)) {
+      return object;
+    }
     return JSON.parse(JSON.stringify(object)) as T;
   }
 
@@ -1031,7 +1115,6 @@ export default class Utils {
   }
 
   public static async hashPasswordBcrypt(password: string): Promise<string> {
-    // eslint-disable-next-line no-undef
     return await new Promise((fulfill, reject) => {
       // Generate a salt with 15 rounds
       bcrypt.genSalt(10, (error, salt) => {
@@ -1049,7 +1132,6 @@ export default class Utils {
   }
 
   public static async checkPasswordBCrypt(password: string, hash: string): Promise<boolean> {
-    // eslint-disable-next-line no-undef
     return await new Promise((fulfill, reject) => {
       // Compare
       bcrypt.compare(password, hash, (err, match) => {
@@ -1063,18 +1145,6 @@ export default class Utils {
     });
   }
 
-  public static isPasswordStrongEnough(password: string): boolean {
-    const uc = password.match(Constants.PWD_UPPERCASE_RE);
-    const lc = password.match(Constants.PWD_LOWERCASE_RE);
-    const n = password.match(Constants.PWD_NUMBER_RE);
-    const sc = password.match(Constants.PWD_SPECIAL_CHAR_RE);
-    return password.length >= Constants.PWD_MIN_LENGTH &&
-      uc && uc.length >= Constants.PWD_UPPERCASE_MIN_COUNT &&
-      lc && lc.length >= Constants.PWD_LOWERCASE_MIN_COUNT &&
-      n && n.length >= Constants.PWD_NUMBER_MIN_COUNT &&
-      sc && sc.length >= Constants.PWD_SPECIAL_MIN_COUNT;
-  }
-
   public static containsAddressGPSCoordinates(address: Address): boolean {
     // Check if GPS are available
     if (address && Utils.containsGPSCoordinates(address.coordinates)) {
@@ -1085,10 +1155,9 @@ export default class Utils {
 
   public static containsGPSCoordinates(coordinates: number[]): boolean {
     // Check if GPs are available
-    if (coordinates && coordinates.length === 2 && coordinates[0] && coordinates[1]) {
+    if (!Utils.isEmptyArray(coordinates) && coordinates.length === 2 && coordinates[0] && coordinates[1]) {
       // Check Longitude & Latitude
-      if (new RegExp(Constants.REGEX_VALIDATION_LONGITUDE).test(coordinates[0].toString()) &&
-        new RegExp(Constants.REGEX_VALIDATION_LATITUDE).test(coordinates[1].toString())) {
+      if (validator.isLatLong(coordinates[1].toString() + ',' + coordinates[0].toString())) {
         return true;
       }
     }
@@ -1098,7 +1167,7 @@ export default class Utils {
   public static generatePassword(): string {
     let password = '';
     const randomLength = Utils.getRandomInt(Constants.PWD_MAX_LENGTH, Constants.PWD_MIN_LENGTH);
-    while (!Utils.isPasswordStrongEnough(password)) {
+    while (!Utils.isPasswordValid(password)) {
       // eslint-disable-next-line no-useless-escape
       password = passwordGenerator(randomLength, false, /[\w\d!#\$%\^&\*\.\?\-]/);
     }
@@ -1197,7 +1266,6 @@ export default class Utils {
           }
         }
         break;
-
       // Billing
       case TenantComponents.BILLING:
         if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
@@ -1208,7 +1276,6 @@ export default class Utils {
           } as SettingDBContent;
         }
         break;
-
       // Refund
       case TenantComponents.REFUND:
         if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
@@ -1219,18 +1286,26 @@ export default class Utils {
           } as SettingDBContent;
         }
         break;
-
       // OCPI
       case TenantComponents.OCPI:
         if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
           // Only Gireve
           return {
-            'type': RoamingSettingsType.GIREVE,
+            'type': RoamingSettingsType.OCPI,
             'ocpi': {}
           } as SettingDBContent;
         }
         break;
-
+      // OICP
+      case TenantComponents.OICP:
+        if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
+          // Only Hubject
+          return {
+            'type': RoamingSettingsType.OICP,
+            'oicp': {}
+          } as SettingDBContent;
+        }
+        break;
       // SAC
       case TenantComponents.ANALYTICS:
         if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
@@ -1241,7 +1316,6 @@ export default class Utils {
           } as SettingDBContent;
         }
         break;
-
       // Smart Charging
       case TenantComponents.SMART_CHARGING:
         if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
@@ -1252,10 +1326,9 @@ export default class Utils {
           } as SettingDBContent;
         }
         break;
-
       // Asset
       case TenantComponents.ASSET:
-        if (!currentSettingContent || currentSettingContent.type !== activeComponent.type) {
+        if (!currentSettingContent) {
           // Only Asset
           return {
             'type': AssetSettingsType.ASSET,
@@ -1265,7 +1338,23 @@ export default class Utils {
           } as SettingDBContent;
         }
         break;
+      // Car Connector
+      case TenantComponents.CAR_CONNECTOR:
+        if (!currentSettingContent) {
+          // Only Car Connector
+          return {
+            'type': CarConnectorSettingsType.CAR_CONNECTOR,
+            'carConnector': {
+              connections: []
+            }
+          } as SettingDBContent;
+        }
+        break;
     }
+  }
+
+  public static buildTenantName(tenant: Tenant): string {
+    return `'${tenant.name}' ('${tenant.subdomain}')`;
   }
 
   public static isChargingStationIDValid(name: string): boolean {
@@ -1290,7 +1379,68 @@ export default class Utils {
     return tags.filter((tag) => /^[A-Za-z0-9,]*$/.test(tag.id)).length === tags.length;
   }
 
-  public static isPlateIDValid(plateID): boolean {
+  public static isPlateIDValid(plateID: string): boolean {
     return /^[A-Z0-9- ]*$/.test(plateID);
+  }
+
+  public static parseConfigCryptoAlgorithm(algo: string): CryptoKeyProperties {
+    const [blockCypher, blockSize, operationMode] = algo.split('-');
+    return {
+      blockCypher: blockCypher,
+      blockSize: Utils.convertToInt(blockSize),
+      operationMode: operationMode
+    };
+  }
+
+  public static buildCryptoAlgorithm(keyProperties: CryptoKeyProperties): string | CipherGCMTypes {
+    return `${keyProperties.blockCypher}-${keyProperties.blockSize}-${keyProperties.operationMode}`;
+  }
+
+  public static generateRandomKey(keyProperties: CryptoKeyProperties): string {
+    // Ensure the key's number of characters is always keyProperties.blockSize / 8
+    const keyLength = keyProperties.blockSize / 8;
+    return crypto.randomBytes(keyLength).toString('base64').slice(0, keyLength);
+  }
+
+  public static getDefaultKeyProperties(): CryptoKeyProperties {
+    return {
+      blockCypher: 'aes',
+      blockSize: 256,
+      operationMode: 'gcm'
+    };
+  }
+
+  public static buildPerformanceRecord(params: {
+    tenantID: string; durationMs: number; sizeKb?: number;
+    source?: string; module: string; method: string; action: ServerAction|string;
+    httpUrl?: string; httpMethod?: string; httpCode?: number;
+  }): PerformanceRecord {
+    return {
+      tenantID: params.tenantID,
+      timestamp: new Date(),
+      durationMs: params.durationMs,
+      sizeKb: params.sizeKb,
+      host: Utils.getHostname(),
+      process: cluster.isWorker ? 'worker ' + cluster.worker.id.toString() : 'master',
+      processMemoryUsage: process.memoryUsage(),
+      processCPUUsage: process.cpuUsage(),
+      cpusInfo: os.cpus(),
+      memoryTotalGb: Utils.createDecimal(os.totalmem()).div(Constants.ONE_BILLION).toNumber(),
+      memoryFreeGb: Utils.createDecimal(os.freemem()).div(Constants.ONE_BILLION).toNumber(),
+      loadAverageLastMin: os.loadavg()[0],
+      networkInterface: os.networkInterfaces(),
+      numberOfChargingStations: global.centralSystemJsonServer?.getNumberOfJsonConnections(),
+      source: params.source,
+      module: params.module,
+      method: params.method,
+      action: params.action,
+      httpUrl: params.httpUrl,
+      httpMethod: params.httpMethod,
+      httpCode: params.httpCode,
+    };
+  }
+
+  public static getHostname(): string {
+    return Configuration.isCloudFoundry() ? cfenv.getAppEnv().name : os.hostname();
   }
 }

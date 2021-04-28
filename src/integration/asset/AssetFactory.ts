@@ -1,6 +1,8 @@
 import { AssetConnectionType, AssetSetting } from '../../types/Setting';
 
 import AssetIntegration from './AssetIntegration';
+import GreencomAssetIntegration from './greencom/GreencomAssetIntegration';
+import IothinkAssetIntegration from './iothink/IothinkAssetIntegration';
 import Logging from '../../utils/Logging';
 import SchneiderAssetIntegration from './schneider/SchneiderAssetIntegration';
 import { ServerAction } from '../../types/Server';
@@ -29,11 +31,17 @@ export default class AssetFactory {
             case AssetConnectionType.SCHNEIDER:
               assetIntegrationImpl = new SchneiderAssetIntegration(tenantID, settings.asset, foundConnection);
               break;
+            case AssetConnectionType.GREENCOM:
+              assetIntegrationImpl = new GreencomAssetIntegration(tenantID, settings.asset, foundConnection);
+              break;
+            case AssetConnectionType.IOTHINK:
+              assetIntegrationImpl = new IothinkAssetIntegration(tenantID, settings.asset, foundConnection);
+              break;
           }
           return assetIntegrationImpl;
         }
       }
-      Logging.logDebug({
+      await Logging.logDebug({
         tenantID: tenant.id,
         action: ServerAction.ASSET,
         module: MODULE_NAME, method: 'getAssetImpl',

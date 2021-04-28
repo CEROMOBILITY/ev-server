@@ -7,6 +7,7 @@ import DatabaseUtils from './DatabaseUtils';
 import DbParams from '../../types/database/DbParams';
 import Logging from '../../utils/Logging';
 import OCPIEndpoint from '../../types/ocpi/OCPIEndpoint';
+import { OCPIRole } from '../../types/ocpi/OCPIRole';
 import { ObjectID } from 'mongodb';
 import Utils from '../../utils/Utils';
 
@@ -62,7 +63,7 @@ export default class OCPIEndpointStorage {
       businessDetails: ocpiEndpointToSave.businessDetails,
       availableEndpoints: ocpiEndpointToSave.availableEndpoints,
       versionUrl: ocpiEndpointToSave.versionUrl,
-      lastPatchJobOn: ocpiEndpointToSave.lastPatchJobOn,
+      lastPatchJobOn: Utils.convertToDate(ocpiEndpointToSave.lastPatchJobOn),
       lastPatchJobResult: ocpiEndpointToSave.lastPatchJobResult
     };
     // Add Last Changed/Created props
@@ -73,15 +74,15 @@ export default class OCPIEndpointStorage {
       { $set: ocpiEndpointMDB },
       { upsert: true, returnOriginal: false });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'saveOcpiEndpoint', uniqueTimerID, ocpiEndpointMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveOcpiEndpoint', uniqueTimerID, ocpiEndpointMDB);
     // Create
     return ocpiEndpointFilter._id.toHexString();
   }
 
   // Delegate
   static async getOcpiEndpoints(tenantID: string,
-    params: { search?: string; role?: string; ocpiEndpointIDs?: string[]; localToken?: string },
-    dbParams: DbParams, projectFields?: string[]): Promise<DataResult<OCPIEndpoint>> {
+      params: { search?: string; role?: OCPIRole; ocpiEndpointIDs?: string[]; localToken?: string },
+      dbParams: DbParams, projectFields?: string[]): Promise<DataResult<OCPIEndpoint>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getOcpiEndpoints');
     // Check Tenant
@@ -129,7 +130,7 @@ export default class OCPIEndpointStorage {
       .toArray();
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {
-      Logging.traceEnd(tenantID, MODULE_NAME, 'getOcpiEndpoints', uniqueTimerID, ocpiEndpointsCountMDB);
+      await Logging.traceEnd(tenantID, MODULE_NAME, 'getOcpiEndpoints', uniqueTimerID, ocpiEndpointsCountMDB);
       return {
         count: (ocpiEndpointsCountMDB.length > 0 ? ocpiEndpointsCountMDB[0].count : 0),
         result: []
@@ -165,7 +166,7 @@ export default class OCPIEndpointStorage {
       })
       .toArray();
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'getOcpiEndpoints', uniqueTimerID, ocpiEndpointsMDB);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'getOcpiEndpoints', uniqueTimerID, ocpiEndpointsMDB);
     // Ok
     return {
       count: (ocpiEndpointsCountMDB.length > 0 ? ocpiEndpointsCountMDB[0].count : 0),
@@ -182,7 +183,7 @@ export default class OCPIEndpointStorage {
     await global.database.getCollection<any>(tenantID, 'ocpiendpoints')
       .findOneAndDelete({ '_id': Utils.convertToObjectID(id) });
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteOcpiEndpoint', uniqueTimerID, { id });
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteOcpiEndpoint', uniqueTimerID, { id });
   }
 
   static async deleteOcpiEndpoints(tenantID: string) {
@@ -193,6 +194,6 @@ export default class OCPIEndpointStorage {
     // Delete OcpiEndpoint
     await global.database.getCollection<any>(tenantID, 'ocpiendpoints').deleteMany({});
     // Debug
-    Logging.traceEnd(tenantID, MODULE_NAME, 'deleteOcpiEndpoints', uniqueTimerID);
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteOcpiEndpoints', uniqueTimerID);
   }
 }
