@@ -62,6 +62,7 @@ export default class AuthService {
     // Filter
     const filteredRequest = AuthSecurity.filterLoginRequest(req.body);
     // Get Tenant
+    //filteredRequest.tenant = "";
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
     if (!tenantID) {
       throw new AppError({
