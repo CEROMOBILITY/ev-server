@@ -61,8 +61,7 @@ export default class AuthService {
   public static async handleLogIn(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
     const filteredRequest = AuthSecurity.filterLoginRequest(req.body);
-    // Get Tenant
-    //filteredRequest.tenant = "";
+    // Get Tenant filteredRequest.tenant = "";
     const tenantID = await AuthService.getTenantID(filteredRequest.tenant);
     if (!tenantID) {
       throw new AppError({
