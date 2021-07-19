@@ -17,6 +17,8 @@ export default class Constants {
 
   public static readonly AXIOS_DEFAULT_TIMEOUT = 60000;
 
+  public static readonly LAST_SEEN_UPDATE_INTERVAL_MILLIS = 60000;
+
   public static readonly DC_CHARGING_STATION_DEFAULT_EFFICIENCY_PERCENT = 80;
   public static readonly AMPERAGE_DETECTION_THRESHOLD = 0.5;
 
@@ -36,6 +38,11 @@ export default class Constants {
   public static readonly EXPORT_RECORD_MAX_COUNT = 100000;
   public static readonly IMPORT_PAGE_SIZE = 1000;
   public static readonly IMPORT_BATCH_INSERT_SIZE = 250;
+  public static readonly BATCH_PAGE_SIZE = 1000;
+
+  public static readonly CHARGING_STATION_LOCK_SECS = 5;
+
+  public static readonly HEALTH_CHECK_ROUTE = '/health-check';
 
   public static readonly DEFAULT_TENANT = 'default';
   public static readonly DEFAULT_TENANT_OBJECT = Object.freeze({
@@ -238,7 +245,7 @@ export default class Constants {
   public static readonly OCPI_SERVER = 'OCPI Server';
   public static readonly OCPI_SEPARATOR = '*';
   public static readonly OCPI_RECORDS_LIMIT = 25;
-  public static readonly OCPI_MAX_PARALLEL_REQUESTS = 5;
+  public static readonly OCPI_MAX_PARALLEL_REQUESTS = 2;
 
   public static readonly OICP_SERVER = 'OICP Server';
 
@@ -268,31 +275,37 @@ export default class Constants {
   public static readonly PWD_NUMBER_RE = /([\d])/g; // Cannot store regex in enum
   public static readonly PWD_SPECIAL_CHAR_RE = /([!#$%^&*.?-])/g; // Cannot store regex in enum
 
-  public static readonly SUPPORTED_LOCALES = Object.freeze(['en_US', 'fr_FR', 'es_MX', 'de_DE', 'pt_PT', 'it_IT']);
+  public static readonly SUPPORTED_LOCALES = Object.freeze(['en_US', 'fr_FR', 'es_ES', 'de_DE', 'pt_PT', 'it_IT']);
   public static readonly SUPPORTED_LANGUAGES = Object.freeze(['en', 'fr', 'es', 'de', 'pt', 'it']);
   public static readonly DEFAULT_LOCALE = 'en_US';
   public static readonly DEFAULT_LANGUAGE = 'en';
 
   public static readonly ANONYMIZED_VALUE = '####';
 
-  public static readonly WS_DEFAULT_KEEPALIVE = 180; // Seconds
+  public static readonly WS_DEFAULT_KEEP_ALIVE_MILLIS = 180 * 1000;
   public static readonly WS_RECONNECT_DISABLED = 0;
   public static readonly WS_RECONNECT_UNLIMITED = -1;
   public static readonly WS_DEFAULT_RECONNECT_MAX_RETRIES = -1;
   public static readonly WS_DEFAULT_RECONNECT_TIMEOUT = 30; // Seconds
 
   public static readonly OCPP_SOCKET_TIMEOUT = 30000; // 30 sec
+  public static readonly OCPP_HEARTBEAT_KEYS = Object.freeze(['HeartbeatInterval', 'HeartBeatInterval']);
 
   public static readonly MAX_DATE = new Date('9999-12-31Z23:59:59:999');
   public static readonly MIN_DATE = new Date('1970-01-01Z00:00:00:000');
 
   public static readonly REGEX_VALIDATION_LATITUDE = /^[-+]?([1-8]?\d(\.\d+)?|90(\.0+)?)$/;
   public static readonly REGEX_VALIDATION_LONGITUDE = /^[-+]?(180(\.0+)?|((1[0-7]\d)|([1-9]?\d))(\.\d+)?)$/;
+  public static readonly REGEX_URL_PATTERN = /^(?:https?|wss?):\/\/((?:[\w-]+)(?:\.[\w-]+)*)(?:[\w.,@?^=%&amp;:\/~+#-]*[\w@?^=%&amp;\/~+#-])?$/;
   public static readonly MAX_GPS_DISTANCE_METERS = 40000000; // Earth
+
+  public static readonly EXCEPTION_JSON_KEYS_IN_SENSITIVE_DATA = Object.freeze([
+    'stack'
+  ]);
 
   public static readonly SENSITIVE_DATA = Object.freeze([
     'firstName', 'name', 'repeatPassword', 'password', 'captcha', 'email', 'coordinates', 'latitude', 'longitude',
-    'Authorization', 'client_id', 'client_secret', 'refresh_token', 'localToken', 'token', 'Bearer',
+    'Authorization', 'authorization', 'client_id', 'client_secret', 'refresh_token', 'localToken', 'token', 'Bearer',
   ]);
 
   public static readonly MONGO_USER_MASK = Object.freeze({
@@ -338,7 +351,6 @@ export default class Constants {
     { 'key': 'ClockAlignedDataInterval', 'readonly': false, 'value': null },
     { 'key': 'ConnectionTimeOut', 'readonly': false, 'value': null },
     { 'key': 'GetConfigurationMaxKeys', 'readonly': false, 'value': null },
-    { 'key': 'HeartBeatInterval', 'readonly': false, 'value': null },
     { 'key': 'HeartbeatInterval', 'readonly': false, 'value': null },
     { 'key': 'LightIntensity', 'readonly': false, 'value': null },
     { 'key': 'LocalAuthorizeOffline', 'readonly': false, 'value': null },

@@ -6,9 +6,7 @@ import { ActionsResponse } from '../../../../types/GlobalType';
 import AppAuthError from '../../../../exception/AppAuthError';
 import AppError from '../../../../exception/AppError';
 import AuthorizationService from './AuthorizationService';
-import Authorizations from '../../../../authorization/Authorizations';
 import { ChargingProfilePurposeType } from '../../../../types/ChargingProfile';
-import ChargingStationStorage from '../../../../storage/mongodb/ChargingStationStorage';
 import Constants from '../../../../utils/Constants';
 import ConsumptionStorage from '../../../../storage/mongodb/ConsumptionStorage';
 import LockingHelper from '../../../../locking/LockingHelper';
@@ -35,23 +33,13 @@ export default class SiteAreaService {
       Action.UPDATE, Entity.ASSET, MODULE_NAME, 'handleAssignAssetsToSiteArea');
     // Filter request
     const filteredRequest = SiteAreaSecurity.filterAssignAssetsToSiteAreaRequest(req.body);
-    // Check Mandatory fields
-    UtilsService.assertIdIsProvided(action, filteredRequest.siteAreaID, MODULE_NAME, 'handleAssignAssetsToSiteArea', req.user);
-    if (Utils.isEmptyArray(filteredRequest.assetIDs)) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Asset\'s IDs must be provided',
-        module: MODULE_NAME, method: 'handleAssignAssetsToSiteArea',
-        user: req.user
-      });
-    }
     // Check and Get Site Area
+    const authAction = action === ServerAction.ADD_ASSET_TO_SITE_AREA ? Action.ASSIGN_ASSETS_TO_SITE_AREA : Action.UNASSIGN_ASSETS_TO_SITE_AREA;
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, filteredRequest.siteAreaID, Action.UPDATE, action, {});
+      req.tenant, req.user, filteredRequest.siteAreaID, authAction, action);
     // Check and Get Assets
     const assets = await UtilsService.checkSiteAreaAssetsAuthorization(
-      req.tenant, req.user, siteArea, filteredRequest.assetIDs, action, {});
+      req.tenant, req.user, siteArea, filteredRequest.assetIDs, action);
     // Save
     if (action === ServerAction.ADD_ASSET_TO_SITE_AREA) {
       await SiteAreaStorage.addAssetsToSiteArea(req.user.tenantID, siteArea, assets.map((asset) => asset.id));
@@ -74,30 +62,18 @@ export default class SiteAreaService {
 
   public static async handleAssignChargingStationsToSiteArea(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Check if component is active
-    UtilsService.assertComponentIsActiveFromToken(
-      req.user, TenantComponents.ORGANIZATION,
+    UtilsService.assertComponentIsActiveFromToken(req.user, TenantComponents.ORGANIZATION,
       Action.UPDATE, Entity.CHARGING_STATION, MODULE_NAME, 'handleAssignChargingStationsToSiteArea');
     // Filter request
     const filteredRequest = SiteAreaSecurity.filterAssignChargingStationsToSiteAreaRequest(req.body);
-    // Check mandatory fields
-    UtilsService.assertIdIsProvided(action, filteredRequest.siteAreaID, MODULE_NAME, 'handleAssignChargingStationsToSiteArea', req.user);
-    if (Utils.isEmptyArray(filteredRequest.chargingStationIDs)) {
-      throw new AppError({
-        source: Constants.CENTRAL_SERVER,
-        errorCode: HTTPError.GENERAL_ERROR,
-        message: 'The Charging Station\'s IDs must be provided',
-        module: MODULE_NAME,
-        method: 'handleAssignChargingStationsToSiteArea',
-        user: req.user
-      });
-    }
     // Check and Get Site Area
+    const authAction = action === ServerAction.ADD_CHARGING_STATIONS_TO_SITE_AREA ? Action.ASSIGN_CHARGING_STATIONS_TO_SITE_AREA : Action.UNASSIGN_CHARGING_STATIONS_TO_SITE_AREA;
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, filteredRequest.siteAreaID, Action.UPDATE, action, {});
+      req.tenant, req.user, filteredRequest.siteAreaID, authAction, action, null, { withSite: true });
     // Check and Get Charging Stations
     const chargingStations = await UtilsService.checkSiteAreaChargingStationsAuthorization(
-      req.tenant, req.user, siteArea, filteredRequest.chargingStationIDs, action, {});
-    // Check that Charging Station has not 3 phases on 1 phase Site
+      req.tenant, req.user, siteArea, filteredRequest.chargingStationIDs, action);
+    // Check if Charging Station has 3 phases on 1 phase Site Area
     if (siteArea.numberOfPhases === 1) {
       for (const chargingStation of chargingStations) {
         for (const connector of chargingStation.connectors) {
@@ -146,7 +122,7 @@ export default class SiteAreaService {
     UtilsService.assertIdIsProvided(action, siteAreaID, MODULE_NAME, 'handleDeleteSiteArea', req.user);
     // Check and Get Site Area
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, siteAreaID, Action.DELETE, action, {});
+      req.tenant, req.user, siteAreaID, Action.DELETE, action);
     // Delete
     await SiteAreaStorage.deleteSiteArea(req.user.tenantID, siteArea.id);
     // Log
@@ -169,17 +145,13 @@ export default class SiteAreaService {
       Action.READ, Entity.SITE_AREA, MODULE_NAME, 'handleGetSiteArea');
     // Filter request
     const filteredRequest = SiteAreaSecurity.filterSiteAreaRequest(req.query);
-    // Check mandatory fields
-    UtilsService.assertIdIsProvided(action, filteredRequest.ID, MODULE_NAME, 'handleGetSiteArea', req.user);
     // Check and Get Site Area
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, filteredRequest.ID, Action.READ, action, {
+      req.tenant, req.user, filteredRequest.ID, Action.READ, action, null, {
         withSite: filteredRequest.WithSite,
         withChargingStations: filteredRequest.WithChargingStations,
         withImage: true,
       }, true);
-    // Add authorizations
-    await AuthorizationService.addSiteAreaAuthorizations(req.tenant, req.user, siteArea);
     // Return
     res.json(siteArea);
     next();
@@ -214,21 +186,16 @@ export default class SiteAreaService {
     // Check if component is active
     UtilsService.assertComponentIsActiveFromToken(req.user, TenantComponents.ORGANIZATION,
       Action.LIST, Entity.SITE_AREAS, MODULE_NAME, 'handleGetSiteAreas');
-    // Check static auth
-    if (!await Authorizations.canListSiteAreas(req.user)) {
-      throw new AppAuthError({
-        errorCode: HTTPAuthError.FORBIDDEN,
-        user: req.user,
-        action: Action.LIST, entity: Entity.SITE_AREAS,
-        module: MODULE_NAME, method: 'handleGetSiteAreas'
-      });
-    }
     // Filter
     const filteredRequest = SiteAreaSecurity.filterSiteAreasRequest(req.query);
     // Check dynamic auth
-    const readSiteAreasAuthorizationFilters = await AuthorizationService.checkAndGetSiteAreasAuthorizationFilters(
+    const authorizationSiteAreasFilter = await AuthorizationService.checkAndGetSiteAreasAuthorizations(
       req.tenant, req.user, filteredRequest);
-    // Get the sites
+    if (!authorizationSiteAreasFilter.authorized) {
+      UtilsService.sendEmptyDataResult(res, next);
+      return;
+    }
+    // Get the SiteAreas
     const siteAreas = await SiteAreaStorage.getSiteAreas(req.user.tenantID,
       {
         issuer: filteredRequest.Issuer,
@@ -236,10 +203,11 @@ export default class SiteAreaService {
         withSite: filteredRequest.WithSite,
         withChargingStations: filteredRequest.WithChargeBoxes,
         withAvailableChargingStations: filteredRequest.WithAvailableChargers,
-        siteIDs: filteredRequest.SiteID ? filteredRequest.SiteID.split('|') : null,
         locCoordinates: filteredRequest.LocCoordinates,
         locMaxDistanceMeters: filteredRequest.LocMaxDistanceMeters,
-        ...readSiteAreasAuthorizationFilters.filters
+        siteIDs: (filteredRequest.SiteID ? filteredRequest.SiteID.split('|') : null),
+        companyIDs: (filteredRequest.CompanyID ? filteredRequest.CompanyID.split('|') : null),
+        ...authorizationSiteAreasFilter.filters
       },
       {
         limit: filteredRequest.Limit,
@@ -247,11 +215,11 @@ export default class SiteAreaService {
         sort: filteredRequest.SortFields,
         onlyRecordCount: filteredRequest.OnlyRecordCount
       },
-      readSiteAreasAuthorizationFilters.projectFields
+      authorizationSiteAreasFilter.projectFields
     );
     // Add Auth flags
-    await AuthorizationService.addSiteAreasAuthorizations(
-      req.tenant, req.user, siteAreas as SiteAreaDataResult);
+    await AuthorizationService.addSiteAreasAuthorizations(req.tenant, req.user, siteAreas as SiteAreaDataResult,
+      authorizationSiteAreasFilter);
     // Return
     res.json(siteAreas);
     next();
@@ -287,7 +255,7 @@ export default class SiteAreaService {
     }
     // Check and Get Site Area
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, filteredRequest.SiteAreaID, Action.READ, action, {});
+      req.tenant, req.user, filteredRequest.SiteAreaID, Action.READ, action);
     // Get the ConsumptionValues
     const consumptions = await ConsumptionStorage.getSiteAreaConsumptions(req.user.tenantID, {
       siteAreaID: filteredRequest.SiteAreaID,
@@ -305,8 +273,14 @@ export default class SiteAreaService {
     // Check if component is active
     UtilsService.assertComponentIsActiveFromToken(req.user, TenantComponents.ORGANIZATION,
       Action.CREATE, Entity.SITE_AREAS, MODULE_NAME, 'handleCreateSiteArea');
-    // Check static auth
-    if (!await Authorizations.canCreateSiteArea(req.user)) {
+    // Filter request
+    const filteredRequest = SiteAreaSecurity.filterSiteAreaCreateRequest(req.body);
+    // Check request data is valid
+    UtilsService.checkIfSiteAreaValid(filteredRequest, req);
+    // Check auth
+    const authorizationFilters = await AuthorizationService.checkAndGetSiteAreaAuthorizations(req.tenant, req.user,
+      {}, Action.CREATE, filteredRequest as SiteArea);
+    if (!authorizationFilters.authorized) {
       throw new AppAuthError({
         errorCode: HTTPAuthError.FORBIDDEN,
         user: req.user,
@@ -314,13 +288,10 @@ export default class SiteAreaService {
         module: MODULE_NAME, method: 'handleCreateSiteArea'
       });
     }
-    // Filter request
-    const filteredRequest = SiteAreaSecurity.filterSiteAreaCreateRequest(req.body);
-    // Check request data is valid
-    UtilsService.checkIfSiteAreaValid(filteredRequest, req);
-    // Check Site
+    // Check Site auth
     await UtilsService.checkAndGetSiteAuthorization(
-      req.tenant, req.user, filteredRequest.siteID, Action.READ, action, {});
+      req.tenant, req.user, filteredRequest.siteID, Action.READ,
+      action);
     // Create Site Area
     const newSiteArea: SiteArea = {
       ...filteredRequest,
@@ -350,11 +321,14 @@ export default class SiteAreaService {
     const filteredRequest = SiteAreaSecurity.filterSiteAreaUpdateRequest(req.body);
     // Check Mandatory fields
     UtilsService.checkIfSiteAreaValid(filteredRequest, req);
-    // Check and Get Site Area
+    // Check and Get SiteArea
     const siteArea = await UtilsService.checkAndGetSiteAreaAuthorization(
-      req.tenant, req.user, filteredRequest.id, Action.UPDATE, action, {
+      req.tenant, req.user, filteredRequest.id, Action.UPDATE, action, filteredRequest as SiteArea, {
         withChargingStations: true,
-      });
+      }, false, true);
+    // Check Site auth
+    await UtilsService.checkAndGetSiteAuthorization(
+      req.tenant, req.user, filteredRequest.siteID, Action.READ, action);
     // Update
     siteArea.name = filteredRequest.name;
     siteArea.address = filteredRequest.address;
@@ -372,7 +346,7 @@ export default class SiteAreaService {
               source: Constants.CENTRAL_SERVER,
               action: action,
               errorCode: HTTPError.THREE_PHASE_CHARGER_ON_SINGLE_PHASE_SITE_AREA,
-              message: `'Error occurred while updating SiteArea.'${chargingStation.id}' is not single phased`,
+              message: `Error occurred while updating SiteArea.'${chargingStation.id}' is not single phased`,
               module: MODULE_NAME, method: 'handleUpdateSiteArea',
               user: req.user
             });
@@ -384,7 +358,7 @@ export default class SiteAreaService {
     let actionsResponse: ActionsResponse;
     if (siteArea.smartCharging && !filteredRequest.smartCharging) {
       actionsResponse = await OCPPUtils.clearAndDeleteChargingProfilesForSiteArea(
-        req.user.tenantID, siteArea,
+        req.tenant, siteArea,
         { profilePurposeType: ChargingProfilePurposeType.TX_PROFILE });
     }
     siteArea.smartCharging = filteredRequest.smartCharging;
@@ -392,17 +366,17 @@ export default class SiteAreaService {
     siteArea.siteID = filteredRequest.siteID;
     siteArea.lastChangedBy = { 'id': req.user.id };
     siteArea.lastChangedOn = new Date();
-    // Update Site Area
+    // Save
     await SiteAreaStorage.saveSiteArea(req.user.tenantID, siteArea, Utils.objectHasProperty(filteredRequest, 'image'));
     // Retrigger Smart Charging
     if (filteredRequest.smartCharging) {
       // FIXME: the lock acquisition can wait for 30s before timeout and the whole code execution timeout at 3s
       // eslint-disable-next-line @typescript-eslint/no-misused-promises
       setTimeout(async () => {
-        const siteAreaLock = await LockingHelper.tryCreateSiteAreaSmartChargingLock(req.user.tenantID, siteArea, 30 * 1000);
+        const siteAreaLock = await LockingHelper.acquireSiteAreaSmartChargingLock(req.user.tenantID, siteArea, 30);
         if (siteAreaLock) {
           try {
-            const smartCharging = await SmartChargingFactory.getSmartChargingImpl(req.user.tenantID);
+            const smartCharging = await SmartChargingFactory.getSmartChargingImpl(req.tenant);
             if (smartCharging) {
               await smartCharging.computeAndApplyChargingProfiles(siteArea);
             }
@@ -413,7 +387,7 @@ export default class SiteAreaService {
               module: MODULE_NAME, method: 'handleUpdateSiteArea',
               action: action,
               message: 'An error occurred while trying to call smart charging',
-              detailedMessages: { error: error.message, stack: error.stack }
+              detailedMessages: { error: error.stack }
             });
           } finally {
             // Release lock

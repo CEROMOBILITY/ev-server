@@ -1,5 +1,3 @@
-import os, { CpuInfo } from 'os';
-
 import { ServerAction } from './Server';
 
 export default interface PerformanceRecord {
@@ -10,13 +8,13 @@ export default interface PerformanceRecord {
   sizeKb?: number;
   host: string;
   process: string;
-  processMemoryUsage: NodeJS.MemoryUsage,
-  processCPUUsage: NodeJS.CpuUsage,
-  cpusInfo: CpuInfo[],
+  processMemoryUsage: NodeJS.MemoryUsage;
+  processCPUUsage: NodeJS.CpuUsage;
+  numberOfCPU: number;
+  modelOfCPU: string;
   memoryTotalGb: number;
   memoryFreeGb: number;
-  loadAverageLastMin: number,
-  networkInterface: NodeJS.Dict<os.NetworkInterfaceInfo[]>,
+  loadAverageLastMin: number;
   numberOfChargingStations?: number;
   source: string;
   module: string;
@@ -25,6 +23,25 @@ export default interface PerformanceRecord {
   httpUrl?: string;
   httpMethod?: string;
   httpCode?: number;
+  chargingStationID?: string;
   userID?: string;
   parentID?: string;
+  group?: PerformanceRecordGroup;
+}
+
+export enum PerformanceRecordGroup {
+  MONGO_DB = 'mongo-db',
+  OCPP = 'ocpp',
+  OCPI = 'ocpi',
+  OICP = 'oicp',
+  REST = 'rest',
+  GREENCOM = 'greencom',
+  STRIPE = 'stripe',
+  RECAPTCHA = 'recaptcha',
+  IOTHINK = 'iothink',
+  EV_DATABASE = 'ev-database',
+  WIT = 'wit',
+  SAP_SMART_CHARGING = 'sap-smart-charging',
+  SAP_CONCUR = 'sap-concur',
+  UNKNOWN = 'unknown',
 }

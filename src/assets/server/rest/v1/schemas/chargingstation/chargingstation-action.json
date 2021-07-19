@@ -2,10 +2,13 @@
   "title": "Charging Station Action Request",
   "type": "object",
   "properties": {
-    "chargeBoxID": {
+    "chargingStationID": {
       "$ref": "chargingstation.json#/definitions/id"
     },
     "carID": {
+      "$ref": "common.json#/definitions/id"
+    },
+    "userID": {
       "$ref": "common.json#/definitions/id"
     },
     "args": {
@@ -46,7 +49,12 @@
           "$ref": "chargingstation.json#/definitions/chargingProfile/properties/profile/properties/stackLevel"
         },
         "tagID": {
-          "$ref": "tag.json#/definitions/id"
+          "type": "string",
+          "sanitize": "mongo"
+        },
+        "visualTagID": {
+          "type": "string",
+          "sanitize": "mongo"
         },
         "location": {
           "type": "string",
@@ -88,6 +96,6 @@
     }
   },
   "required": [
-    "chargeBoxID"
+    "chargingStationID"
   ]
 }

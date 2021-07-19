@@ -169,7 +169,7 @@ export default class RegistrationTokenService {
     // Delete
     await RegistrationTokenStorage.deleteRegistrationToken(req.user.tenantID, tokenID);
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: req.user.tenantID,
       user: req.user,
       module: MODULE_NAME, method: 'handleDeleteRegistrationToken',
@@ -214,7 +214,7 @@ export default class RegistrationTokenService {
     registrationToken.lastChangedOn = new Date();
     await RegistrationTokenStorage.saveRegistrationToken(req.user.tenantID, registrationToken);
     // Log
-    Logging.logSecurityInfo({
+    await Logging.logSecurityInfo({
       tenantID: req.user.tenantID,
       user: req.user,
       module: MODULE_NAME, method: 'handleRevokeRegistrationToken',
@@ -240,7 +240,7 @@ export default class RegistrationTokenService {
     const filteredRequest = RegistrationTokenSecurity.filterRegistrationTokensRequest(req.query);
     // Check User
     let userProject: string[] = [];
-    if (await Authorizations.canListUsers(req.user)) {
+    if ((await Authorizations.canListUsers(req.user)).authorized) {
       userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
     }
     // Get the tokens
@@ -279,7 +279,7 @@ export default class RegistrationTokenService {
     const filteredRequest = RegistrationTokenSecurity.filterRegistrationTokenByIDRequest(req.query);
     // Check User
     let userProject: string[] = [];
-    if (await Authorizations.canListUsers(req.user)) {
+    if ((await Authorizations.canListUsers(req.user)).authorized) {
       userProject = [ 'createdBy.name', 'createdBy.firstName', 'lastChangedBy.name', 'lastChangedBy.firstName' ];
     }
     // Get the token

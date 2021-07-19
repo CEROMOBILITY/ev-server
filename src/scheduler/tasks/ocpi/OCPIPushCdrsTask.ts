@@ -22,14 +22,15 @@ export default class OCPIPushCdrsTask extends SchedulerTask {
       // Check if OCPI component is active
       if (Utils.isTenantComponentActive(tenant, TenantComponents.OCPI)) {
         // Get the lock
-        const ocpiLock = await LockingHelper.createOCPIPushCpoCdrsLock(tenant.id);
+        const ocpiLock = await LockingHelper.acquireOCPIPushCpoCdrsLock(tenant.id);
         if (ocpiLock) {
           try {
-            // Get all Transaction with no CDR
+            // Get all finished Transaction with no CDR
             const transactionsMDB: {_id: number}[] = await global.database.getCollection<{_id: number}>(tenant.id, 'transactions')
               .aggregate([
                 {
                   $match: {
+                    'stop': { $exists: true },
                     'ocpiData': { $exists: true },
                     'ocpiData.cdr': null
                   }
@@ -47,11 +48,11 @@ export default class OCPIPushCdrsTask extends SchedulerTask {
               });
               for (const transactionMDB of transactionsMDB) {
                 // Get the lock: Used to avoid collision with manual push or end of transaction push
-                const ocpiTransactionLock = await LockingHelper.createOCPIPushCdrLock(tenant.id, transactionMDB._id);
+                const ocpiTransactionLock = await LockingHelper.acquireOCPIPushCdrLock(tenant.id, transactionMDB._id);
                 if (ocpiTransactionLock) {
                   try {
                     // Get Transaction
-                    const transaction = await TransactionStorage.getTransaction(tenant.id, transactionMDB._id);
+                    const transaction = await TransactionStorage.getTransaction(tenant.id, transactionMDB._id, { withUser: true });
                     if (!transaction) {
                       await Logging.logError({
                         tenantID: tenant.id,
@@ -61,7 +62,7 @@ export default class OCPIPushCdrsTask extends SchedulerTask {
                       });
                       continue;
                     }
-                    if (transaction.ocpiData && transaction.ocpiData.cdr) {
+                    if (transaction.ocpiData?.cdr) {
                       await Logging.logInfo({
                         tenantID: tenant.id,
                         action: ServerAction.OCPI_PUSH_CDRS,
@@ -81,10 +82,10 @@ export default class OCPIPushCdrsTask extends SchedulerTask {
                       });
                       continue;
                     }
-                    // Post CDR
-                    await OCPPUtils.processOCPITransaction(tenant.id, transaction, chargingStation, TransactionAction.END);
+                    // Roaming
+                    await OCPPUtils.processTransactionRoaming(tenant, transaction, chargingStation, TransactionAction.END);
                     // Save
-                    await TransactionStorage.saveTransaction(tenant.id, transaction);
+                    await TransactionStorage.saveTransactionOcpiData(tenant.id, transaction.id, transaction.ocpiData);
                     // Ok
                     await Logging.logInfo({
                       tenantID: tenant.id,
@@ -95,11 +96,12 @@ export default class OCPIPushCdrsTask extends SchedulerTask {
                       detailedMessages: { cdr: transaction.ocpiData.cdr }
                     });
                   } catch (error) {
-                    await Logging.logInfo({
+                    await Logging.logError({
                       tenantID: tenant.id,
                       action: ServerAction.OCPI_PUSH_CDRS,
                       module: MODULE_NAME, method: 'processTenant',
                       message: `Failed to pushed the CDR of the Transaction ID '${transactionMDB._id}' to OCPI`,
+                      detailedMessages: { error: error.stack, transaction: transactionMDB }
                     });
                   } finally {
                     // Release the lock

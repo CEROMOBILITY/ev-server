@@ -17,7 +17,7 @@ const MODULE_NAME = 'UsersImportAsyncTask';
 
 export default class UsersImportAsyncTask extends AbstractAsyncTask {
   protected async executeAsyncTask(): Promise<void> {
-    const importUsersLock = await LockingHelper.createImportUsersLock(this.asyncTask.tenantID);
+    const importUsersLock = await LockingHelper.acquireImportUsersLock(this.asyncTask.tenantID);
     if (importUsersLock) {
       const tenant = await TenantStorage.getTenant(this.asyncTask.tenantID);
       try {
@@ -91,7 +91,7 @@ export default class UsersImportAsyncTask extends AbstractAsyncTask {
                 action: ServerAction.USERS_IMPORT,
                 module: MODULE_NAME, method: 'processTenant',
                 message: `Error when importing User with email '${importedUser.email}': ${error.message}`,
-                detailedMessages: { user: importedUser, error: error.message, stack: error.stack }
+                detailedMessages: { user: importedUser, error: error.stack }
               });
             }
           }

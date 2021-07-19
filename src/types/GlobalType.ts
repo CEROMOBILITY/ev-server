@@ -1,8 +1,17 @@
+import { Car, CarCatalog } from './Car';
+
+import ChargingStation from './ChargingStation';
+import Company from './Company';
 import JsonCentralSystemServer from '../server/ocpp/json/JsonCentralSystemServer';
 import MongoDBStorage from '../storage/mongodb/MongoDBStorage';
+import Site from './Site';
+import SiteArea from './SiteArea';
 import SoapCentralSystemServer from '../server/ocpp/soap/SoapCentralSystemServer';
+import Tag from './Tag';
+import User from './User';
 import bluebird from 'bluebird';
 import path from 'path';
+
 import Global = NodeJS.Global;
 
 export interface Data {
@@ -30,19 +39,12 @@ export interface ActionsResponse {
   inError: number;
 }
 
-export enum DocumentType {
-  PDF = 'pdf',
-}
-
-export enum DocumentEncoding {
-  BASE64 = 'base64',
-}
-
 export enum ImportStatus {
   READY = 'R',
   ERROR = 'E',
 }
 
+export type EntityDataType = Car|User|Company|Site|SiteArea|Tag|CarCatalog|ChargingStation;
 
 interface TSGlobal extends Global {
   database: MongoDBStorage;
@@ -50,6 +52,7 @@ interface TSGlobal extends Global {
   centralSystemJsonServer: JsonCentralSystemServer;
   centralSystemSoapServer: SoapCentralSystemServer;
 }
+
 
 // Export global variables
 declare const global: TSGlobal;

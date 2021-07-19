@@ -93,17 +93,6 @@
     "notifStopTransactionAndUnlockConnector": false,
     "maxLastSeenIntervalSecs": 540
   },
-  "Locales": {
-    "default": "en_US",
-    "supported": [
-      "en_US",
-      "fr_FR",
-      "es_MX",
-      "de_DE",
-      "pt_PT",
-      "it_IT"
-    ]
-  },
   "Migration": {
     "active": true
   },
@@ -129,6 +118,12 @@
         "name": "SynchronizeBillingInvoicesTask",
         "active": false,
         "periodicity": "0 0 * * *",
+        "config": {}
+      },
+      {
+        "name": "BillingPeriodicOperationTask",
+        "active": false,
+        "periodicity": "0 1 1 * *",
         "config": {}
       },
       {

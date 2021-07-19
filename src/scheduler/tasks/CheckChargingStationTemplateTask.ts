@@ -51,12 +51,12 @@ export default class CheckChargingStationTemplateTask extends SchedulerTask {
     }
     // Get the charging stations
     const chargingStations = await ChargingStationStorage.getChargingStations(tenant.id, {
-      issuer: true
+      issuer: true, withSiteArea: true
     }, Constants.DB_PARAMS_MAX_LIMIT);
     // Update
     for (const chargingStation of chargingStations.result) {
       try {
-        const chargingStationTemplateUpdateResult = await OCPPUtils.applyTemplateToChargingStation(tenant.id, chargingStation);
+        const chargingStationTemplateUpdateResult = await OCPPUtils.applyTemplateToChargingStation(tenant, chargingStation);
         if (chargingStationTemplateUpdateResult.chargingStationUpdated) {
           updated++;
         }
@@ -67,7 +67,7 @@ export default class CheckChargingStationTemplateTask extends SchedulerTask {
           source: chargingStation.id,
           module: MODULE_NAME, method: 'applyTemplateToChargingStations',
           message: `Template update error in Tenant ${Utils.buildTenantName(tenant)}): ${error.message}`,
-          detailedMessages: { error: error.message, stack: error.stack }
+          detailedMessages: { error: error.stack }
         });
       }
     }

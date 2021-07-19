@@ -1,7 +1,7 @@
+import { DataResult, DeletedResult } from '../../types/DataResult';
 import global, { FilterParams } from './../../types/GlobalType';
 
 import Constants from '../../utils/Constants';
-import { DataResult } from '../../types/DataResult';
 import DatabaseUtils from './DatabaseUtils';
 import DbParams from '../../types/database/DbParams';
 import { Log } from '../../types/Log';
@@ -9,7 +9,7 @@ import Utils from '../../utils/Utils';
 import cluster from 'cluster';
 
 export default class LoggingStorage {
-  public static async deleteLogs(tenantID: string, deleteUpToDate: Date): Promise<{ ok?: number; n?: number; }> {
+  public static async deleteLogs(tenantID: string, deleteUpToDate: Date): Promise<DeletedResult> {
     // Check Tenant
     await DatabaseUtils.checkTenant(tenantID);
     // Build filter
@@ -28,10 +28,10 @@ export default class LoggingStorage {
     const result = await global.database.getCollection<Log>(tenantID, 'logs')
       .deleteMany(filters);
     // Return the result
-    return result.result;
+    return { acknowledged: result.acknowledged, deletedCount: result.deletedCount };
   }
 
-  public static async deleteSecurityLogs(tenantID: string, deleteUpToDate: Date): Promise<{ ok?: number; n?: number; }> {
+  public static async deleteSecurityLogs(tenantID: string, deleteUpToDate: Date): Promise<DeletedResult> {
     // Check Tenant
     await DatabaseUtils.checkTenant(tenantID);
     // Build filter
@@ -50,7 +50,7 @@ export default class LoggingStorage {
     const result = await global.database.getCollection<Log>(tenantID, 'logs')
       .deleteMany(filters);
     // Return the result
-    return result.result;
+    return { acknowledged: result.acknowledged, deletedCount: result.deletedCount };
   }
 
   public static async saveLog(tenantID: string, logToSave: Log): Promise<string> {
@@ -58,8 +58,8 @@ export default class LoggingStorage {
     await DatabaseUtils.checkTenant(tenantID);
     // Set
     const logMDB: any = {
-      userID: logToSave.user ? Utils.convertUserToObjectID(logToSave.user) : null,
-      actionOnUserID: Utils.convertUserToObjectID(logToSave.actionOnUser),
+      userID: logToSave.user ? DatabaseUtils.convertUserToObjectID(logToSave.user) : null,
+      actionOnUserID: DatabaseUtils.convertUserToObjectID(logToSave.actionOnUser),
       level: logToSave.level,
       source: logToSave.source,
       host: logToSave.host ? logToSave.host : Utils.getHostname(),
@@ -75,7 +75,7 @@ export default class LoggingStorage {
     // Insert
     if (global.database) {
       await global.database.getCollection<Log>(tenantID, 'logs').insertOne(logMDB);
-      return logMDB._id.toHexString();
+      return logMDB._id.toString();
     }
   }
 
@@ -102,7 +102,7 @@ export default class LoggingStorage {
     const filters: FilterParams = {};
     // Search
     if (params.search) {
-      filters.$text = { $search: params.search };
+      filters.$text = { $search: `"${params.search}"` };
     }
     // Date provided?
     if (params.startDateTime || params.endDateTime) {
@@ -139,14 +139,14 @@ export default class LoggingStorage {
     // Filter on users
     if (!Utils.isEmptyArray(params.userIDs)) {
       filters.$or = [
-        { userID: { $in: params.userIDs.map((userID) => Utils.convertToObjectID(userID)) } },
-        { actionOnUserID: { $in: params.userIDs.map((userID) => Utils.convertToObjectID(userID)) } }
+        { userID: { $in: params.userIDs.map((userID) => DatabaseUtils.convertToObjectID(userID)) } },
+        { actionOnUserID: { $in: params.userIDs.map((userID) => DatabaseUtils.convertToObjectID(userID)) } }
       ];
     }
     // Log ID
     if (!Utils.isEmptyArray(params.logIDs)) {
       filters._id = {
-        $in: params.logIDs.map((logID) => Utils.convertToObjectID(logID))
+        $in: params.logIDs.map((logID) => DatabaseUtils.convertToObjectID(logID))
       };
     }
     // Create Aggregation
@@ -163,12 +163,7 @@ export default class LoggingStorage {
       aggregation.push({ $limit: Constants.DB_RECORD_COUNT_CEIL });
     }
     const loggingsCountMDB = await global.database.getCollection<any>(tenantID, 'logs')
-      .aggregate([...aggregation, { $count: 'count' }], {
-        collation: {
-          locale: Constants.DEFAULT_LOCALE,
-          strength: 2
-        }
-      })
+      .aggregate([...aggregation, { $count: 'count' }])
       .toArray();
     // Check if only the total count is requested
     if (dbParams.onlyRecordCount) {

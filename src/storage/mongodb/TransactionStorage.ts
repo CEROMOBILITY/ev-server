@@ -1,4 +1,6 @@
-import RefundReport, { RefundStatus } from '../../types/Refund';
+import { BillingStatus, TransactionBillingData } from '../../types/Billing';
+import RefundReport, { RefundStatus, TransactionRefundData } from '../../types/Refund';
+import Transaction, { TransactionOcpiData, TransactionOicpData } from '../../types/Transaction';
 import { TransactionInError, TransactionInErrorType } from '../../types/InError';
 import global, { FilterParams } from './../../types/GlobalType';
 
@@ -10,7 +12,6 @@ import DbParams from '../../types/database/DbParams';
 import Logging from '../../utils/Logging';
 import { NotifySessionNotStarted } from '../../types/UserNotifications';
 import { ServerAction } from '../../types/Server';
-import Transaction from '../../types/Transaction';
 import Utils from '../../utils/Utils';
 import moment from 'moment';
 
@@ -18,7 +19,7 @@ const MODULE_NAME = 'TransactionStorage';
 
 export default class TransactionStorage {
   public static async deleteTransaction(tenantID: string, transactionID: number): Promise<void> {
-    await this.deleteTransactions(tenantID, [transactionID]);
+    await TransactionStorage.deleteTransactions(tenantID, [transactionID]);
   }
 
   public static async deleteTransactions(tenantID: string, transactionsIDs: number[]): Promise<number> {
@@ -46,19 +47,20 @@ export default class TransactionStorage {
     await DatabaseUtils.checkTenant(tenantID);
     // ID not provided?
     if (!transactionToSave.id) {
-      transactionToSave.id = await TransactionStorage._findAvailableID(tenantID);
+      transactionToSave.id = await TransactionStorage.findAvailableID(tenantID);
     }
     // Transfer
     const transactionMDB: any = {
       _id: Utils.convertToInt(transactionToSave.id),
       issuer: Utils.convertToBoolean(transactionToSave.issuer),
-      siteID: Utils.convertToObjectID(transactionToSave.siteID),
-      siteAreaID: Utils.convertToObjectID(transactionToSave.siteAreaID),
+      companyID: DatabaseUtils.convertToObjectID(transactionToSave.companyID),
+      siteID: DatabaseUtils.convertToObjectID(transactionToSave.siteID),
+      siteAreaID: DatabaseUtils.convertToObjectID(transactionToSave.siteAreaID),
       connectorId: Utils.convertToInt(transactionToSave.connectorId),
       tagID: transactionToSave.tagID,
-      carID: transactionToSave.carID ? Utils.convertToObjectID(transactionToSave.carID) : null,
+      carID: transactionToSave.carID ? DatabaseUtils.convertToObjectID(transactionToSave.carID) : null,
       carCatalogID: transactionToSave.carCatalogID ? Utils.convertToInt(transactionToSave.carCatalogID) : null,
-      userID: Utils.convertToObjectID(transactionToSave.userID),
+      userID: DatabaseUtils.convertToObjectID(transactionToSave.userID),
       chargeBoxID: transactionToSave.chargeBoxID,
       meterStart: Utils.convertToInt(transactionToSave.meterStart),
       timestamp: Utils.convertToDate(transactionToSave.timestamp),
@@ -106,10 +108,11 @@ export default class TransactionStorage {
     if (transactionToSave.stop) {
       // Add stop
       transactionMDB.stop = {
-        userID: Utils.convertToObjectID(transactionToSave.stop.userID),
+        userID: DatabaseUtils.convertToObjectID(transactionToSave.stop.userID),
         timestamp: Utils.convertToDate(transactionToSave.stop.timestamp),
         tagID: transactionToSave.stop.tagID,
         meterStop: transactionToSave.stop.meterStop,
+        reason: transactionToSave.stop.reason,
         transactionData: transactionToSave.stop.transactionData,
         stateOfCharge: Utils.convertToInt(transactionToSave.stop.stateOfCharge),
         signedData: transactionToSave.stop.signedData,
@@ -155,7 +158,7 @@ export default class TransactionStorage {
       transactionMDB.remotestop = {
         timestamp: Utils.convertToDate(transactionToSave.remotestop.timestamp),
         tagID: transactionToSave.remotestop.tagID,
-        userID: Utils.convertToObjectID(transactionToSave.remotestop.userID)
+        userID: DatabaseUtils.convertToObjectID(transactionToSave.remotestop.userID)
       };
     }
     if (transactionToSave.refundData) {
@@ -172,7 +175,8 @@ export default class TransactionStorage {
         lastUpdate: Utils.convertToDate(transactionToSave.billingData.lastUpdate),
         stop: {
           status: transactionToSave.billingData.stop?.status,
-          invoiceID: Utils.convertToObjectID(transactionToSave.billingData.stop?.invoiceID),
+          invoiceID: DatabaseUtils.convertToObjectID(transactionToSave.billingData.stop?.invoiceID),
+          invoiceNumber: transactionToSave.billingData.stop?.invoiceNumber,
           invoiceStatus: transactionToSave.billingData.stop?.invoiceStatus,
           invoiceItem: transactionToSave.billingData.stop?.invoiceItem,
         },
@@ -207,6 +211,82 @@ export default class TransactionStorage {
     return transactionToSave.id;
   }
 
+  public static async saveTransactionOcpiData(tenantID: string, id: number,
+      ocpiData: TransactionOcpiData): Promise<void> {
+    // Debug
+    const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'saveTransactionOcpiData');
+    // Check Tenant
+    await DatabaseUtils.checkTenant(tenantID);
+    // Modify document
+    await global.database.getCollection<Transaction>(tenantID, 'transactions').findOneAndUpdate(
+      { '_id': id },
+      {
+        $set: {
+          ocpiData
+        }
+      },
+      { upsert: false });
+    // Debug
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransactionOcpiData', uniqueTimerID, ocpiData);
+  }
+
+  public static async saveTransactionOicpData(tenantID: string, id: number,
+      oicpData: TransactionOicpData): Promise<void> {
+    // Debug
+    const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'saveTransactionOicpData');
+    // Check Tenant
+    await DatabaseUtils.checkTenant(tenantID);
+    // Modify document
+    await global.database.getCollection<Transaction>(tenantID, 'transactions').findOneAndUpdate(
+      { '_id': id },
+      {
+        $set: {
+          oicpData
+        }
+      },
+      { upsert: false });
+    // Debug
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransactionOicpData', uniqueTimerID, oicpData);
+  }
+
+  public static async saveTransactionBillingData(tenantID: string, id: number,
+      billingData: TransactionBillingData): Promise<void> {
+    // Debug
+    const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'saveTransactionBillingData');
+    // Check Tenant
+    await DatabaseUtils.checkTenant(tenantID);
+    // Modify document
+    await global.database.getCollection<Transaction>(tenantID, 'transactions').findOneAndUpdate(
+      { '_id': id },
+      {
+        $set: {
+          billingData
+        }
+      },
+      { upsert: false });
+    // Debug
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransactionBillingData', uniqueTimerID, billingData);
+  }
+
+  public static async saveTransactionRefundData(tenantID: string, id: number,
+      refundData: TransactionRefundData): Promise<void> {
+    // Debug
+    const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'saveTransactionRefundData');
+    // Check Tenant
+    await DatabaseUtils.checkTenant(tenantID);
+    // Modify document
+    await global.database.getCollection<Transaction>(tenantID, 'transactions').findOneAndUpdate(
+      { '_id': id },
+      {
+        $set: {
+          refundData
+        }
+      },
+      { upsert: false });
+    // Debug
+    await Logging.traceEnd(tenantID, MODULE_NAME, 'saveTransactionRefundData', uniqueTimerID, refundData);
+  }
+
   public static async assignTransactionsToUser(tenantID: string, userID: string, tagID: string): Promise<void> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'assignTransactionsToUser');
@@ -218,7 +298,7 @@ export default class TransactionStorage {
       ]
     }, {
       $set: {
-        userID: Utils.convertToObjectID(userID)
+        userID: DatabaseUtils.convertToObjectID(userID)
       }
     });
     // Debug
@@ -267,11 +347,11 @@ export default class TransactionStorage {
   public static async getTransactions(tenantID: string,
       params: {
         transactionIDs?: number[]; issuer?: boolean; search?: string; ownerID?: string; userIDs?: string[]; siteAdminIDs?: string[];
-        chargeBoxIDs?: string[]; siteAreaIDs?: string[]; siteIDs?: string[]; connectorIDs?: number[]; startDateTime?: Date;
+        chargeBoxIDs?: string[]; siteAreaIDs?: string[]; siteIDs?: string[]; connectorIDs?: number[]; startDateTime?: Date; withChargingStation?: boolean;
         endDateTime?: Date; stop?: any; minimalPrice?: boolean; reportIDs?: string[]; tagIDs?: string[]; inactivityStatus?: string[];
-        ocpiSessionID?: string; ocpiSessionDateFrom?: Date; ocpiSessionDateTo?: Date; ocpiCdrDateFrom?: Date; ocpiCdrDateTo?: Date;
-        ocpiSessionChecked?: boolean; ocpiCdrChecked?: boolean; oicpSessionID?: string;
-        statistics?: 'refund' | 'history'; refundStatus?: string[]; withTag?: boolean;
+        ocpiSessionID?: string; ocpiAuthorizationID?: string; ocpiSessionDateFrom?: Date; ocpiSessionDateTo?: Date; ocpiCdrDateFrom?: Date; ocpiCdrDateTo?: Date;
+        ocpiSessionChecked?: boolean; ocpiCdrChecked?: boolean; oicpSessionID?: string; withSite?: boolean; withSiteArea?: boolean; withCompany?: boolean;
+        statistics?: 'refund' | 'history' | 'ongoing'; refundStatus?: string[]; withTag?: boolean; hasUserID?: boolean; withUser?: boolean; withCar?: boolean;
       },
       dbParams: DbParams, projectFields?: string[]):
       Promise<{
@@ -297,16 +377,18 @@ export default class TransactionStorage {
     // User / Site Admin
     if (params.ownerID) {
       ownerMatch.$or.push({
-        userID: Utils.convertToObjectID(params.ownerID)
+        userID: DatabaseUtils.convertToObjectID(params.ownerID)
       });
     }
     if (params.siteAdminIDs) {
       ownerMatch.$or.push({
         siteID: {
-          $in: params.siteAdminIDs.map((siteID) => Utils.convertToObjectID(siteID))
+          $in: params.siteAdminIDs.map((siteID) => DatabaseUtils.convertToObjectID(siteID))
         }
       });
     }
+    // Create Aggregation
+    const aggregation = [];
     // Filter?
     if (params.search) {
       // Build filter
@@ -314,12 +396,16 @@ export default class TransactionStorage {
         { '_id': Utils.convertToInt(params.search) },
         { 'tagID': { $regex: params.search, $options: 'i' } },
         { 'chargeBoxID': { $regex: params.search, $options: 'i' } },
-        { 'ocpiData.session.id': { $regex: params.search, $options: 'i' } }
+        { 'ocpiData.session.authorization_id': { $regex: params.search, $options: 'i' } }
       ];
     }
     // OCPI ID
     if (params.ocpiSessionID) {
       filters['ocpiData.session.id'] = params.ocpiSessionID;
+    }
+    // Authorization ID
+    if (params.ocpiAuthorizationID) {
+      filters['ocpiData.session.authorization_id'] = params.ocpiAuthorizationID;
     }
     // OICP ID
     if (params.oicpSessionID) {
@@ -337,7 +423,7 @@ export default class TransactionStorage {
     }
     // User
     if (params.userIDs) {
-      filters.userID = { $in: params.userIDs.map((siteID) => Utils.convertToObjectID(siteID)) };
+      filters.userID = { $in: params.userIDs.map((siteID) => DatabaseUtils.convertToObjectID(siteID)) };
     }
     // Charge Box
     if (params.chargeBoxIDs) {
@@ -347,10 +433,17 @@ export default class TransactionStorage {
     if (params.tagIDs) {
       filters.tagID = { $in: params.tagIDs };
     }
+    // Has user ID?
+    if (params.hasUserID) {
+      filters.$and = [
+        { 'userID': { '$exists': true } },
+        { 'userID': { '$ne': null } }
+      ];
+    }
     // Connector
     if (!Utils.isEmptyArray(params.connectorIDs)) {
       filters.connectorId = {
-        $in: params.connectorIDs.map((connectorID) => Utils.convertToObjectID(connectorID))
+        $in: params.connectorIDs.map((connectorID) => DatabaseUtils.convertToObjectID(connectorID))
       };
     }
     // Date provided?
@@ -377,6 +470,7 @@ export default class TransactionStorage {
       }
     }
     if (params.ocpiSessionChecked === true || params.ocpiSessionChecked === false) {
+      filters.stop = { $exists: true };
       filters['ocpiData.session'] = { $exists: true };
       filters['ocpiData.sessionCheckedOn'] = { $exists: params.ocpiSessionChecked };
     }
@@ -406,13 +500,13 @@ export default class TransactionStorage {
     // Site's area ID
     if (params.siteAreaIDs) {
       filters.siteAreaID = {
-        $in: params.siteAreaIDs.map((siteAreaID) => Utils.convertToObjectID(siteAreaID))
+        $in: params.siteAreaIDs.map((siteAreaID) => DatabaseUtils.convertToObjectID(siteAreaID))
       };
     }
     // Site ID
     if (params.siteIDs) {
       filters.siteID = {
-        $in: params.siteIDs.map((siteID) => Utils.convertToObjectID(siteID))
+        $in: params.siteIDs.map((siteID) => DatabaseUtils.convertToObjectID(siteID))
       };
     }
     // Refund status
@@ -430,8 +524,6 @@ export default class TransactionStorage {
     if (params.reportIDs) {
       filters['refundData.reportId'] = { $in: params.reportIDs };
     }
-    // Create Aggregation
-    const aggregation = [];
     // Filters
     if (ownerMatch.$or && ownerMatch.$or.length > 0) {
       aggregation.push({
@@ -463,6 +555,21 @@ export default class TransactionStorage {
             totalPrice: { $sum: '$stop.price' },
             totalInactivitySecs: { '$sum': { $add: ['$stop.totalInactivitySecs', '$stop.extraInactivitySecs'] } },
             currency: { $addToSet: '$stop.priceUnit' },
+            count: { $sum: 1 }
+          }
+        };
+        break;
+      case 'ongoing': // For ongoing case
+        statsQuery = {
+          $group: {
+            _id: null,
+            firstTimestamp: { $min: '$timestamp' },
+            lastTimestamp: { $max: '$timestamp' },
+            totalConsumptionWattHours: { $sum: '$currentTotalConsumptionWh' },
+            totalDurationSecs: { $sum: '$currentTotalDurationSecs' },
+            totalPrice: { $sum: '$currentCumulatedPrice' },
+            totalInactivitySecs: { $sum:  '$currentTotalInactivitySecs' },
+            currency: { $addToSet: '$priceUnit' },
             count: { $sum: 1 }
           }
         };
@@ -502,6 +609,7 @@ export default class TransactionStorage {
     if (!transactionCountMDB) {
       switch (params.statistics) {
         case 'history':
+        case 'ongoing':
           transactionCountMDB = {
             totalConsumptionWattHours: 0,
             totalDurationSecs: 0,
@@ -585,55 +693,84 @@ export default class TransactionStorage {
         }
       });
     }
-    // Transaction tag
+    // Tag
     if (params.withTag) {
       DatabaseUtils.pushTagLookupInAggregation({
         tenantID, aggregation: aggregation, asField: 'tag', localField: 'tagID',
         foreignField: '_id', oneToOneCardinality: true
       });
-    }
-    // Charge Box
-    DatabaseUtils.pushChargingStationLookupInAggregation({
-      tenantID, aggregation: aggregation, localField: 'chargeBoxID', foreignField: '_id',
-      asField: 'chargeBox', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
-    });
-    DatabaseUtils.pushConvertObjectIDToString(aggregation, 'chargeBox.siteAreaID');
-    // Add Connector and Status
-    if (projectFields && projectFields.includes('status')) {
-      aggregation.push({
-        $addFields: {
-          connector: {
-            $arrayElemAt: [
-              '$chargeBox.connectors', {
-                $indexOfArray: ['$chargeBox.connectors.connectorId', '$connectorId']
-              }
-            ]
-          }
-        }
-      }, {
-        $addFields: { status: '$connector.status' }
+      DatabaseUtils.pushTagLookupInAggregation({
+        tenantID, aggregation: aggregation, asField: 'stop.tag', localField: 'stop.tagID',
+        foreignField: '_id', oneToOneCardinality: true
       });
     }
-    // Users
-    DatabaseUtils.pushUserLookupInAggregation({
-      tenantID, aggregation: aggregation, asField: 'user', localField: 'userID',
-      foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
-    });
-    // Car
-    DatabaseUtils.pushCarLookupInAggregation({
-      tenantID, aggregation: aggregation, asField: 'car', localField: 'carID',
-      foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
-    });
-    // Car Catalog
-    DatabaseUtils.pushCarCatalogLookupInAggregation({
-      tenantID: Constants.DEFAULT_TENANT, aggregation: aggregation, asField: 'carCatalog', localField: 'carCatalogID',
-      foreignField: '_id', oneToOneCardinality: true
-    });
+    // Company
+    if (params.withCompany) {
+      DatabaseUtils.pushCompanyLookupInAggregation({
+        tenantID, aggregation: aggregation, localField: 'companyID', foreignField: '_id',
+        asField: 'company', oneToOneCardinality: true
+      });
+    }
+    // Site
+    if (params.withSite) {
+      DatabaseUtils.pushSiteLookupInAggregation({
+        tenantID, aggregation: aggregation, localField: 'siteID', foreignField: '_id',
+        asField: 'site', oneToOneCardinality: true
+      });
+    }
+    // Site Area
+    if (params.withSiteArea) {
+      DatabaseUtils.pushSiteAreaLookupInAggregation({
+        tenantID, aggregation: aggregation, localField: 'siteAreaID', foreignField: '_id',
+        asField: 'siteArea', oneToOneCardinality: true
+      });
+    }
+    // Charging Station
+    if (params.withChargingStation) {
+      DatabaseUtils.pushChargingStationLookupInAggregation({
+        tenantID, aggregation: aggregation, localField: 'chargeBoxID', foreignField: '_id',
+        asField: 'chargeBox', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
+      });
+      DatabaseUtils.pushConvertObjectIDToString(aggregation, 'chargeBox.siteAreaID');
+      // Add Connector and Status
+      if (projectFields && projectFields.includes('status')) {
+        aggregation.push({
+          $addFields: {
+            connector: {
+              $arrayElemAt: [
+                '$chargeBox.connectors', {
+                  $indexOfArray: ['$chargeBox.connectors.connectorId', '$connectorId']
+                }
+              ]
+            }
+          }
+        }, {
+          $addFields: { status: '$connector.status' }
+        });
+      }
+    }
     // User
-    DatabaseUtils.pushUserLookupInAggregation({
-      tenantID, aggregation: aggregation, asField: 'stop.user', localField: 'stop.userID',
-      foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
-    });
+    if (params.withUser) {
+      DatabaseUtils.pushUserLookupInAggregation({
+        tenantID, aggregation: aggregation, asField: 'user', localField: 'userID',
+        foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
+      });
+      DatabaseUtils.pushUserLookupInAggregation({
+        tenantID, aggregation: aggregation, asField: 'stop.user', localField: 'stop.userID',
+        foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
+      });
+    }
+    // Car
+    if (params.withCar) {
+      DatabaseUtils.pushCarLookupInAggregation({
+        tenantID, aggregation: aggregation, asField: 'car', localField: 'carID',
+        foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
+      });
+      DatabaseUtils.pushCarCatalogLookupInAggregation({
+        tenantID: Constants.DEFAULT_TENANT, aggregation: aggregation, asField: 'carCatalog', localField: 'carCatalogID',
+        foreignField: '_id', oneToOneCardinality: true
+      });
+    }
     // Rename ID
     DatabaseUtils.pushRenameDatabaseIDToNumber(aggregation);
     // Convert Object ID to string
@@ -682,13 +819,13 @@ export default class TransactionStorage {
     filters['refundData.reportId'] = { '$ne': null };
     if (params.ownerID) {
       ownerMatch.$or.push({
-        userID: Utils.convertToObjectID(params.ownerID)
+        userID: DatabaseUtils.convertToObjectID(params.ownerID)
       });
     }
     if (params.siteAdminIDs) {
       ownerMatch.$or.push({
         siteID: {
-          $in: params.siteAdminIDs.map((siteID) => Utils.convertToObjectID(siteID))
+          $in: params.siteAdminIDs.map((siteID) => DatabaseUtils.convertToObjectID(siteID))
         }
       });
     }
@@ -795,9 +932,9 @@ export default class TransactionStorage {
 
   static async getTransactionsInError(tenantID: string,
       params: {
-        search?: string; issuer?: boolean; userIDs?: string[]; chargeBoxIDs?: string[];
+        search?: string; issuer?: boolean; userIDs?: string[]; chargingStationIDs?: string[];
         siteAreaIDs?: string[]; siteIDs?: string[]; startDateTime?: Date; endDateTime?: Date;
-        withChargeBoxes?: boolean; errorType?: TransactionInErrorType[]; connectorIDs?: number[];
+        withChargingStations?: boolean; errorType?: TransactionInErrorType[]; connectorIDs?: number[];
       }, dbParams: DbParams, projectFields?: string[]): Promise<DataResult<TransactionInError>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getTransactionsInError');
@@ -825,11 +962,11 @@ export default class TransactionStorage {
     }
     // User / Site Admin
     if (params.userIDs) {
-      match.userID = { $in: params.userIDs.map((user) => Utils.convertToObjectID(user)) };
+      match.userID = { $in: params.userIDs.map((user) => DatabaseUtils.convertToObjectID(user)) };
     }
     // Charge Box
-    if (params.chargeBoxIDs) {
-      match.chargeBoxID = { $in: params.chargeBoxIDs };
+    if (params.chargingStationIDs) {
+      match.chargeBoxID = { $in: params.chargingStationIDs };
     }
     // Date provided?
     if (params.startDateTime || params.endDateTime) {
@@ -846,19 +983,19 @@ export default class TransactionStorage {
     // Site Areas
     if (params.siteAreaIDs) {
       match.siteAreaID = {
-        $in: params.siteAreaIDs.map((area) => Utils.convertToObjectID(area))
+        $in: params.siteAreaIDs.map((area) => DatabaseUtils.convertToObjectID(area))
       };
     }
     // Sites
     if (params.siteIDs) {
       match.siteID = {
-        $in: params.siteIDs.map((site) => Utils.convertToObjectID(site))
+        $in: params.siteIDs.map((site) => DatabaseUtils.convertToObjectID(site))
       };
     }
     // Connectors
     if (!Utils.isEmptyArray(params.connectorIDs)) {
       match.connectorId = {
-        $in: params.connectorIDs.map((connectorID) => Utils.convertToObjectID(connectorID))
+        $in: params.connectorIDs.map((connectorID) => DatabaseUtils.convertToObjectID(connectorID))
       };
     }
     // Create Aggregation
@@ -866,8 +1003,8 @@ export default class TransactionStorage {
     aggregation.push({
       $match: match
     });
-    // Charging Station?
-    if (params.withChargeBoxes ||
+    // Charging Station
+    if (params.withChargingStations ||
       (params.errorType && params.errorType.includes(TransactionInErrorType.OVER_CONSUMPTION))) {
       // Add Charge Box
       DatabaseUtils.pushChargingStationLookupInAggregation({
@@ -876,10 +1013,15 @@ export default class TransactionStorage {
       });
       DatabaseUtils.pushConvertObjectIDToString(aggregation, 'chargeBox.siteAreaID');
     }
-    // Add respective users
+    // User
     DatabaseUtils.pushUserLookupInAggregation({
       tenantID, aggregation: aggregation, asField: 'user', localField: 'userID',
       foreignField: '_id', oneToOneCardinality: true, oneToOneCardinalityNotNull: false
+    });
+    // Car Catalog
+    DatabaseUtils.pushCarCatalogLookupInAggregation({
+      tenantID: Constants.DEFAULT_TENANT, aggregation: aggregation, asField: 'carCatalog', localField: 'carCatalogID',
+      foreignField: '_id', oneToOneCardinality: true
     });
     // Used only in the error type : missing_user
     if (params.errorType && params.errorType.includes(TransactionInErrorType.MISSING_USER)) {
@@ -895,7 +1037,7 @@ export default class TransactionStorage {
       const array = [];
       for (const type of params.errorType) {
         array.push(`$${type}`);
-        facets.$facet[type] = this.getTransactionsInErrorFacet(type);
+        facets.$facet[type] = TransactionStorage.getTransactionsInErrorFacet(type);
       }
       aggregation.push(facets);
       // Manipulate the results to convert it to an array of document on root level
@@ -953,22 +1095,38 @@ export default class TransactionStorage {
   }
 
   public static async getTransaction(tenantID: string, id: number = Constants.UNKNOWN_NUMBER_ID,
-      projectFields?: string[]): Promise<Transaction> {
+      params: { withTag?: boolean; withCar?: boolean; withUser?: boolean, withChargingStation?: boolean } = {}, projectFields?: string[]): Promise<Transaction> {
     const transactionsMDB = await TransactionStorage.getTransactions(tenantID, {
-      transactionIDs: [id]
+      transactionIDs: [id],
+      withTag: params.withTag,
+      withCar: params.withCar,
+      withChargingStation: params.withChargingStation,
+      withUser: params.withUser,
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
     return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
   }
 
   public static async getOCPITransactionBySessionID(tenantID: string, sessionID: string): Promise<Transaction> {
     const transactionsMDB = await TransactionStorage.getTransactions(tenantID,
-      { ocpiSessionID: sessionID }, Constants.DB_PARAMS_SINGLE_RECORD);
+      {
+        ocpiSessionID: sessionID
+      }, Constants.DB_PARAMS_SINGLE_RECORD);
     return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
   }
 
-  public static async getOICPTransactionBySessionID(tenantID: string, sessionID: string): Promise<Transaction> {
+  public static async getOCPITransactionByAuthorizationID(tenantID: string, authorizationID: string): Promise<Transaction> {
     const transactionsMDB = await TransactionStorage.getTransactions(tenantID,
-      { oicpSessionID: sessionID }, Constants.DB_PARAMS_SINGLE_RECORD);
+      {
+        ocpiAuthorizationID: authorizationID
+      }, Constants.DB_PARAMS_SINGLE_RECORD);
+    return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
+  }
+
+  public static async getOICPTransactionBySessionID(tenantID: string, oicpSessionID: string): Promise<Transaction> {
+    const transactionsMDB = await TransactionStorage.getTransactions(tenantID,
+      {
+        oicpSessionID: oicpSessionID
+      }, Constants.DB_PARAMS_SINGLE_RECORD);
     return transactionsMDB.count === 1 ? transactionsMDB.result[0] : null;
   }
 
@@ -1070,7 +1228,7 @@ export default class TransactionStorage {
     return transactionsMDB.length === 1 ? transactionsMDB[0] : null;
   }
 
-  public static async _findAvailableID(tenantID: string): Promise<number> {
+  public static async findAvailableID(tenantID: string): Promise<number> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, '_findAvailableID');
     // Check
@@ -1221,8 +1379,13 @@ export default class TransactionStorage {
         ];
       case TransactionInErrorType.NO_CONSUMPTION:
         return [
-          { $match: { 'stop.totalConsumptionWh': { $lte: 0 } } },
+          { $match: { 'stop.totalConsumptionWh': { $eq: 0 } } },
           { $addFields: { 'errorCode': TransactionInErrorType.NO_CONSUMPTION } }
+        ];
+      case TransactionInErrorType.LOW_CONSUMPTION:
+        return [
+          { $match: { 'stop.totalConsumptionWh': { $gt: 0, $lt: 1000 } } },
+          { $addFields: { 'errorCode': TransactionInErrorType.LOW_CONSUMPTION } }
         ];
       case TransactionInErrorType.NEGATIVE_ACTIVITY:
         return [
@@ -1240,6 +1403,11 @@ export default class TransactionStorage {
         return [
           { $match: { 'stop.totalDurationSecs': { $lt: 0 } } },
           { $addFields: { 'errorCode': TransactionInErrorType.NEGATIVE_DURATION } }
+        ];
+      case TransactionInErrorType.LOW_DURATION:
+        return [
+          { $match: { 'stop.totalDurationSecs': { $gte: 0, $lt: 60 } } },
+          { $addFields: { 'errorCode': TransactionInErrorType.LOW_DURATION } }
         ];
       case TransactionInErrorType.INVALID_START_DATE:
         return [
@@ -1266,15 +1434,7 @@ export default class TransactionStorage {
         return [
           {
             $match: {
-              $and: [
-                {
-                  $or: [
-                    { 'userID': null },
-                    { 'user': null },
-                  ]
-                },
-                { 'siteArea.accessControl': { '$eq': true } }
-              ]
+              'userID': null,
             }
           },
           { $addFields: { 'errorCode': TransactionInErrorType.MISSING_USER } }
@@ -1284,13 +1444,12 @@ export default class TransactionStorage {
           {
             $match: {
               $and: [
-                { 'billingData.isTransactionBillingActivated': { $eq: true } },
+                { 'billingData.withBillingActive': { $eq: true } },
                 {
                   $or: [
                     { 'billingData': { $exists: false } },
                     { 'billingData.stop': { $exists: false } },
-                    { 'billingData.stop.invoiceID': { $exists: false } },
-                    { 'billingData.stop.invoiceID': { $eq: null } }
+                    { 'billingData.stop.status': { $eq: BillingStatus.FAILED } },
                   ]
                 }
               ]

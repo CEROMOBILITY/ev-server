@@ -15,7 +15,7 @@ export default class ODataSchema {
 
   public static restServerUrl = '';
 
-  static async getSchema(req: Request, res: Response, next: NextFunction) {
+  static async getSchema(req: Request, res: Response, next: NextFunction): Promise<void> {
     // Read XML schema
     const oDataSchema = fs.readFileSync(`${global.appRoot}/assets/server/odata/ODataSchema.xml`, 'utf8');
     // Set default header
@@ -42,13 +42,13 @@ export default class ODataSchema {
       }
     } catch (error) {
       // Add logging: login info
-      Logging.logError({
+      await Logging.logError({
         tenantID: Constants.DEFAULT_TENANT,
         module: MODULE_NAME,
         source: 'ODataServer', method: 'getSchema',
         action: ServerAction.ODATA_SERVER,
         message: 'Unauthorized Access',
-        detailedMessages: { error: error.message, stack: error.stack }
+        detailedMessages: { error: error.stack }
       });
       res.send(StatusCodes.UNAUTHORIZED);
       return;

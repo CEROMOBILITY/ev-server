@@ -9,7 +9,7 @@ import LockingManager from '../../locking/LockingManager';
 import Logging from '../../utils/Logging';
 import MigrationConfiguration from '../../types/configuration/MigrationConfiguration';
 import { ServerAction } from '../../types/Server';
-import StorageCfg from '../../types/configuration/StorageConfiguration';
+import StorageConfiguration from '../../types/configuration/StorageConfiguration';
 import Utils from '../../utils/Utils';
 import cluster from 'cluster';
 import mongoUriBuilder from 'mongo-uri-builder';
@@ -19,11 +19,11 @@ const MODULE_NAME = 'MongoDBStorage';
 
 export default class MongoDBStorage {
   private db: Db;
-  private readonly dbConfig: StorageCfg;
+  private readonly dbConfig: StorageConfiguration;
   private readonly migrationConfig: MigrationConfiguration;
 
   // Create database access
-  public constructor(dbConfig: StorageCfg) {
+  public constructor(dbConfig: StorageConfiguration) {
     this.dbConfig = dbConfig;
     this.migrationConfig = Configuration.getMigrationConfig();
   }
@@ -80,6 +80,7 @@ export default class MongoDBStorage {
     // Invoices
     await this.handleIndexesInCollection(tenantID, 'invoices', [
       { fields: { invoiceID: 1 }, options: { unique: true } },
+      { fields: { createdOn: 1 } },
     ]);
     // Logs
     await this.handleIndexesInCollection(tenantID, 'logs', [
@@ -102,18 +103,15 @@ export default class MongoDBStorage {
     ]);
     // Tags
     await this.handleIndexesInCollection(tenantID, 'tags', [
+      { fields: { visualID: 1 }, options: { unique: true } },
       { fields: { deleted: 1, createdOn: 1 } },
       { fields: { issuer: 1, createdOn: 1 } },
-      { fields: { userID: 1, issuer: 1 } }
+      { fields: { userID: 1, issuer: 1 } },
     ]);
     // Sites/Users
     await this.handleIndexesInCollection(tenantID, 'siteusers', [
       { fields: { siteID: 1, userID: 1 }, options: { unique: true } },
       { fields: { userID: 1 } }
-    ]);
-    // User Cars
-    await this.handleIndexesInCollection(tenantID, 'carusers', [
-      { fields: { userID: 1, carID: 1 }, options: { unique: true } }
     ]);
     // Cars
     await this.handleIndexesInCollection(tenantID, 'cars', [
@@ -157,6 +155,7 @@ export default class MongoDBStorage {
     await this.handleIndexesInCollection(tenantID, 'chargingstations', [
       { fields: { coordinates: '2dsphere' } },
       { fields: { deleted: 1, issuer: 1 } },
+      { fields: { 'connectors.status': 1 } },
     ]);
     await Logging.logDebug({
       tenantID: tenantID,
@@ -222,15 +221,14 @@ export default class MongoDBStorage {
     const mongoDBClient = await MongoClient.connect(
       mongoUrl,
       {
-        useNewUrlParser: true,
-        poolSize: this.dbConfig.poolSize,
+        minPoolSize: this.dbConfig.poolSize,
+        maxPoolSize: this.dbConfig.poolSize,
         replicaSet: this.dbConfig.replicaSet,
         loggerLevel: (this.dbConfig.debug ? 'debug' : null),
-        useUnifiedTopology: true
       }
     );
     // Get the EVSE DB
-    this.db = mongoDBClient.db(this.dbConfig.schema);
+    this.db = mongoDBClient.db();
     // Check Database only when migration is active
     if (this.migrationConfig.active) {
       await this.checkDatabase();
@@ -266,6 +264,10 @@ export default class MongoDBStorage {
         // Tenants
         await this.handleIndexesInCollection(Constants.DEFAULT_TENANT, 'tenants', [
           { fields: { subdomain: 1 }, options: { unique: true } },
+        ]);
+        // Performances
+        await this.handleIndexesInCollection(Constants.DEFAULT_TENANT, 'performances', [
+          { fields: { timestamp: 1, group: 1, tenantID: 1 } },
         ]);
         // Users
         await this.handleIndexesInCollection(Constants.DEFAULT_TENANT, 'users', [
@@ -333,34 +335,47 @@ export default class MongoDBStorage {
       try {
         await this.db.createCollection(tenantCollectionName);
       } catch (error) {
-        console.error(`>>>>> Error in creating collection '${tenantCollectionName}': ${error.message}`);
+        console.error(`>>>>> Error in creating collection '${tenantCollectionName}': ${error.message as string}`);
       }
     }
     // Indexes?
     if (indexes) {
       // Get current indexes
-      const databaseIndexes = await this.db.collection(tenantCollectionName).listIndexes().toArray();
+      let databaseIndexes = await this.db.collection(tenantCollectionName).listIndexes().toArray();
       // Drop indexes
       for (const databaseIndex of databaseIndexes) {
         if (databaseIndex.key._id) {
           continue;
         }
-        const foundIndex = indexes.find((index) => this.buildIndexName(index.fields) === databaseIndex.name);
+        let foundIndex = indexes.find((index) => this.buildIndexName(index.fields) === databaseIndex.name);
+        // Check DB unique index
+        const databaseIndexISUnique = !!databaseIndex?.unique;
+        const indexIsUnique = !!foundIndex.options?.unique;
+        if (indexIsUnique !== databaseIndexISUnique) {
+          // Delete the index
+          foundIndex = null;
+        }
+        // Delete the index
         if (!foundIndex) {
           if (Utils.isDevelopmentEnv()) {
-            console.log(`Drop index ${databaseIndex.name} on collection ${tenantID}.${name}`);
+            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+            console.log(`Drop index ${databaseIndex.name} in collection ${tenantID}.${name}`);
           }
           try {
             await this.db.collection(tenantCollectionName).dropIndex(databaseIndex.key);
           } catch (error) {
+            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
             console.error(`>>>>> Error in dropping index '${databaseIndex.name}' in '${tenantCollectionName}': ${error.message}`);
           }
         }
       }
+      // Get updated indexes
+      databaseIndexes = await this.db.collection(tenantCollectionName).listIndexes().toArray();
       // Create indexes
       for (const index of indexes) {
-        const foundIndex = databaseIndexes.find((databaseIndex) => this.buildIndexName(index.fields) === databaseIndex.name);
-        if (!foundIndex) {
+        const foundDatabaseIndex = databaseIndexes.find((databaseIndex) => this.buildIndexName(index.fields) === databaseIndex.name);
+        // Create the index
+        if (!foundDatabaseIndex) {
           if (Utils.isDevelopmentEnv()) {
             console.log(`Create index ${JSON.stringify(index)} on collection ${tenantID}.${name}`);
           }
@@ -368,7 +383,7 @@ export default class MongoDBStorage {
             // eslint-disable-next-line @typescript-eslint/await-thenable
             await this.db.collection(tenantCollectionName).createIndex(index.fields, index.options);
           } catch (error) {
-            console.error(`>>>>> Error in creating index '${JSON.stringify(index.fields)}' with options '${JSON.stringify(index.options)}' in '${tenantCollectionName}': ${error.message}`);
+            console.error(`>>>>> Error in creating index '${JSON.stringify(index.fields)}' with options '${JSON.stringify(index.options)}' in '${tenantCollectionName}': ${error.message as string}`);
           }
         }
       }

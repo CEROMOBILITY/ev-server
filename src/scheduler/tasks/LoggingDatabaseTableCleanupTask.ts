@@ -34,16 +34,16 @@ export default class LoggingDatabaseTableCleanupTask extends SchedulerTask {
     if (await LockingManager.acquire(logsCleanUpLock)) {
       try {
         // Delete Standard Logs
-        const deleteUpToDate = moment().subtract(config.retentionPeriodWeeks, 'w').startOf('week').toDate();
+        const deleteUpToDate = moment().subtract(config.retentionPeriodWeeks, 'w').toDate();
         // Delete
         let result = await LoggingStorage.deleteLogs(tenantID, deleteUpToDate);
         // Ok?
-        if (result.ok === 1) {
+        if (result.acknowledged) {
           await Logging.logSecurityInfo({
             tenantID: tenantID,
             action: ServerAction.LOGS_CLEANUP,
             module: MODULE_NAME, method: 'deleteLogs',
-            message: `${result.n} Log(s) have been deleted successfully before '${moment(deleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
+            message: `${result.deletedCount} Log(s) have been deleted successfully before '${moment(deleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
           });
         } else {
           await Logging.logError({
@@ -59,12 +59,12 @@ export default class LoggingDatabaseTableCleanupTask extends SchedulerTask {
         // Delete
         result = await LoggingStorage.deleteSecurityLogs(tenantID, securityDeleteUpToDate);
         // Ok?
-        if (result.ok === 1) {
+        if (result.acknowledged) {
           await Logging.logSecurityInfo({
             tenantID: tenantID,
             action: ServerAction.LOGS_CLEANUP,
             module: MODULE_NAME, method: 'deleteLogs',
-            message: `${result.n} Security Log(s) have been deleted before '${moment(securityDeleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
+            message: `${result.deletedCount} Security Log(s) have been deleted before '${moment(securityDeleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
           });
         } else {
           await Logging.logSecurityError({
@@ -88,17 +88,17 @@ export default class LoggingDatabaseTableCleanupTask extends SchedulerTask {
     const performanceCleanUpLock = LockingManager.createExclusiveLock(tenantID, LockEntity.PERFORMANCE, 'cleanup');
     if (await LockingManager.acquire(performanceCleanUpLock)) {
       try {
-        // Delete Performance Records
-        const deleteUpToDate = moment().subtract(config.retentionPeriodWeeks, 'w').startOf('week').toDate();
+        // Delete Performance Records (keep only 2 weeks)
+        const deleteUpToDate = moment().subtract(2, 'w').toDate();
         // Delete
         const result = await PerformanceStorage.deletePerformanceRecords({ deleteUpToDate });
         // Ok?
-        if (result.ok === 1) {
+        if (result.acknowledged) {
           await Logging.logSecurityInfo({
             tenantID: tenantID,
             action: ServerAction.PERFORMANCES_CLEANUP,
             module: MODULE_NAME, method: 'deletePerformanceRecords',
-            message: `${result.n} Performance Record(s) have been deleted successfully before '${moment(deleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
+            message: `${result.deletedCount} Performance Record(s) have been deleted successfully before '${moment(deleteUpToDate).format('DD/MM/YYYY h:mm A')}'`
           });
         } else {
           await Logging.logError({

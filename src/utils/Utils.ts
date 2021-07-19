@@ -2,6 +2,7 @@ import { AnalyticsSettingsType, AssetSettingsType, BillingSettingsType, CarConne
 import { Car, CarCatalog } from '../types/Car';
 import { ChargePointStatus, OCPPProtocol, OCPPVersion, OCPPVersionURLPath } from '../types/ocpp/OCPPServer';
 import ChargingStation, { ChargePoint, ChargingStationEndpoint, Connector, ConnectorCurrentLimitSource, CurrentType, Voltage } from '../types/ChargingStation';
+import PerformanceRecord, { PerformanceRecordGroup } from '../types/Performance';
 import Transaction, { CSPhasesUsed, InactivityStatus } from '../types/Transaction';
 import User, { UserRole, UserStatus } from '../types/User';
 import crypto, { CipherGCMTypes } from 'crypto';
@@ -14,8 +15,7 @@ import ConnectorStats from '../types/ConnectorStats';
 import Constants from './Constants';
 import Cypher from './Cypher';
 import { Decimal } from 'decimal.js';
-import { ObjectID } from 'mongodb';
-import PerformanceRecord from '../types/Performance';
+import Logging from './Logging';
 import QRCode from 'qrcode';
 import { Request } from 'express';
 import { ServerAction } from '../types/Server';
@@ -38,6 +38,8 @@ import path from 'path';
 import tzlookup from 'tz-lookup';
 import { v4 as uuid } from 'uuid';
 import validator from 'validator';
+
+const MODULE_NAME = 'Utils';
 
 export default class Utils {
   public static getConnectorsFromChargePoint(chargingStation: ChargingStation, chargePoint: ChargePoint): Connector[] {
@@ -339,7 +341,7 @@ export default class Utils {
     if (language === 'fr') {
       return 'fr_FR';
     } else if (language === 'es') {
-      return 'es_MX';
+      return 'es_ES';
     } else if (language === 'de') {
       return 'de_DE';
     } else if (language === 'pt') {
@@ -348,6 +350,10 @@ export default class Utils {
       return 'it_IT';
     }
     return Constants.DEFAULT_LOCALE;
+  }
+
+  public static convertLocaleForCurrency(locale: string): string {
+    return locale.replace('_', '-');
   }
 
   public static getConnectorLimitSourceString(limitSource: ConnectorCurrentLimitSource): string {
@@ -446,16 +452,6 @@ export default class Utils {
     return userToken.activeComponents.includes(componentName);
   }
 
-  public static convertToObjectID(id: any): ObjectID {
-    let changedID: ObjectID = id;
-    // Check
-    if (typeof id === 'string') {
-      // Create Object
-      changedID = new ObjectID(id);
-    }
-    return changedID;
-  }
-
   public static convertToInt(value: any): number {
     let changedValue: number = value;
     if (!value) {
@@ -488,25 +484,6 @@ export default class Utils {
 
   public static computeSimplePrice(pricePerkWh: number, consumptionWh: number): number {
     return Utils.createDecimal(pricePerkWh).mul(Utils.convertToFloat(consumptionWh)).div(1000).toNumber();
-  }
-
-  public static convertUserToObjectID(user: User | UserToken | string): ObjectID | null {
-    let userID: ObjectID | null = null;
-    // Check Created By
-    if (user) {
-      // Check User Model
-      if (typeof user === 'object' &&
-        user.constructor.name !== 'ObjectID') {
-        // This is the User Model
-        userID = Utils.convertToObjectID(user.id);
-      }
-      // Check String
-      if (typeof user === 'string') {
-        // This is a String
-        userID = Utils.convertToObjectID(user);
-      }
-    }
-    return userID;
   }
 
   public static convertAmpToWatt(chargingStation: ChargingStation, chargePoint: ChargePoint, connectorID = 0, ampValue: number): number {
@@ -551,6 +528,13 @@ export default class Utils {
       return null;
     }
     return chargingStation.connectors.find((connector) => connector && (connector.connectorId === connectorID));
+  }
+
+  public static getBackupConnectorFromID(chargingStation: ChargingStation, connectorID: number): Connector {
+    if (!chargingStation.backupConnectors) {
+      return null;
+    }
+    return chargingStation.backupConnectors.find((backupConnector) => backupConnector && (backupConnector.connectorId === connectorID));
   }
 
   public static computeChargingStationTotalAmps(chargingStation: ChargingStation): number {
@@ -932,7 +916,7 @@ export default class Utils {
   }
 
   public static buildRestServerURL(): string {
-    const centralSystemRestServer = Configuration.getCentralSystemRestServer();
+    const centralSystemRestServer = Configuration.getCentralSystemRestServerConfig();
     return `${centralSystemRestServer.protocol}://${centralSystemRestServer.host}:${centralSystemRestServer.port}`;
   }
 
@@ -1007,6 +991,11 @@ export default class Utils {
     return `${Utils.buildEvseURL(tenantSubdomain)}/invoices?InvoiceID=${invoiceID}#all`;
   }
 
+  // TODO uodate the route once we handle the payment ui and delete other unused urls
+  public static buildEvseBillingPayURL(tenantSubdomain: string, invoiceID: string): string {
+    return `${Utils.buildEvseURL(tenantSubdomain)}/invoices?InvoiceID=${invoiceID}#all`;
+  }
+
   public static buildEvseUserToVerifyURL(tenantSubdomain: string, userId: string): string {
     return `${Utils.buildEvseURL(tenantSubdomain)}/users/${userId}`;
   }
@@ -1071,7 +1060,20 @@ export default class Utils {
     if (Utils.isNullOrUndefined(object)) {
       return object;
     }
-    return JSON.parse(JSON.stringify(object)) as T;
+    let cloneObject: T;
+    try {
+      cloneObject = _.cloneDeep(object);
+    } catch (error) {
+      void Logging.logError({
+        tenantID: Constants.DEFAULT_TENANT,
+        module: MODULE_NAME,
+        method: 'cloneObject',
+        action: ServerAction.LOGGING,
+        message: `Failed to clone object with error: ${error}`,
+        detailedMessages: { error }
+      });
+    }
+    return cloneObject;
   }
 
   public static getConnectorLetterFromConnectorID(connectorID: number): string {
@@ -1410,11 +1412,64 @@ export default class Utils {
     };
   }
 
+  public static getPerformanceRecordGroupFromURL(url: string): PerformanceRecordGroup {
+    if (!url) {
+      return PerformanceRecordGroup.UNKNOWN;
+    }
+    // REST API
+    if (url.startsWith('/client/api/') ||
+        url.startsWith('/client/util/') ||
+        url.startsWith('/client/auth/') ||
+        url.startsWith('/v1/api/') ||
+        url.startsWith('/v1/util/') ||
+        url.startsWith('/v1/auth/')) {
+      return PerformanceRecordGroup.REST;
+    }
+    // OCPI
+    if (url.includes('ocpi')) {
+      return PerformanceRecordGroup.OCPI;
+    }
+    // Hubject
+    if (url.includes('hubject')) {
+      return PerformanceRecordGroup.OICP;
+    }
+    // Concur
+    if (url.includes('concursolutions')) {
+      return PerformanceRecordGroup.SAP_CONCUR;
+    }
+    // Recaptcha
+    if (url.includes('recaptcha')) {
+      return PerformanceRecordGroup.RECAPTCHA;
+    }
+    // Greencom
+    if (url.includes('gcn-eibp')) {
+      return PerformanceRecordGroup.GREENCOM;
+    }
+    // Stripe
+    if (url.includes('stripe')) {
+      return PerformanceRecordGroup.STRIPE;
+    }
+    // ioThink
+    if (url.includes('kheiron')) {
+      return PerformanceRecordGroup.IOTHINK;
+    }
+    // EV Database
+    if (url.includes('ev-database')) {
+      return PerformanceRecordGroup.EV_DATABASE;
+    }
+    // SAP Smart Charging
+    if (url.includes('smart-charging')) {
+      return PerformanceRecordGroup.SAP_SMART_CHARGING;
+    }
+    return PerformanceRecordGroup.UNKNOWN;
+  }
+
   public static buildPerformanceRecord(params: {
-    tenantID: string; durationMs: number; sizeKb?: number;
-    source?: string; module: string; method: string; action: ServerAction|string;
-    httpUrl?: string; httpMethod?: string; httpCode?: number;
+    tenantID: string; durationMs: number; sizeKb?: number; source?: string;
+    module: string; method: string; action: ServerAction|string; group?: PerformanceRecordGroup;
+    httpUrl?: string; httpMethod?: string; httpCode?: number; chargingStationID?: string,
   }): PerformanceRecord {
+    const cpuInfo = os.cpus();
     return {
       tenantID: params.tenantID,
       timestamp: new Date(),
@@ -1424,23 +1479,37 @@ export default class Utils {
       process: cluster.isWorker ? 'worker ' + cluster.worker.id.toString() : 'master',
       processMemoryUsage: process.memoryUsage(),
       processCPUUsage: process.cpuUsage(),
-      cpusInfo: os.cpus(),
+      numberOfCPU: cpuInfo.length,
+      modelOfCPU: cpuInfo.length > 0 ? cpuInfo[0].model : '',
       memoryTotalGb: Utils.createDecimal(os.totalmem()).div(Constants.ONE_BILLION).toNumber(),
       memoryFreeGb: Utils.createDecimal(os.freemem()).div(Constants.ONE_BILLION).toNumber(),
       loadAverageLastMin: os.loadavg()[0],
-      networkInterface: os.networkInterfaces(),
       numberOfChargingStations: global.centralSystemJsonServer?.getNumberOfJsonConnections(),
       source: params.source,
       module: params.module,
       method: params.method,
       action: params.action,
+      chargingStationID: params.chargingStationID,
       httpUrl: params.httpUrl,
       httpMethod: params.httpMethod,
       httpCode: params.httpCode,
+      group: params.group,
     };
   }
 
   public static getHostname(): string {
     return Configuration.isCloudFoundry() ? cfenv.getAppEnv().name : os.hostname();
+  }
+
+  // when exporting values
+  public static escapeCsvValue(value: any): string {
+    // add double quote start and end
+    // replace double quotes inside value to double double quotes to display double quote correctly in csv editor
+    return typeof value === 'string' ? '"' + value.replace(/"/g, '""') + '"' : value;
+  }
+
+  // when importing values
+  public static unescapeCsvValue(value: any): void {
+    // double quotes are handle by csvToJson
   }
 }

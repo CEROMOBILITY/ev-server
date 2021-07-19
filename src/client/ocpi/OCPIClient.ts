@@ -90,7 +90,7 @@ export default abstract class OCPIClient {
       await this.deleteCredentials();
       // Save endpoint
       this.ocpiEndpoint.status = OCPIRegistrationStatus.UNREGISTERED;
-      await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant.id, this.ocpiEndpoint);
+      await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant, this.ocpiEndpoint);
       // Send success
       unregisterResult.statusCode = StatusCodes.OK;
       unregisterResult.statusText = ReasonPhrases.OK;
@@ -134,14 +134,13 @@ export default abstract class OCPIClient {
       const respPostCredentials = await this.postCredentials();
       const credential = respPostCredentials.data;
       // Store information
-      // pragma this.ocpiEndpoint.setBaseUrl(credential.url);
       this.ocpiEndpoint.token = credential.token;
       this.ocpiEndpoint.countryCode = credential.country_code;
       this.ocpiEndpoint.partyId = credential.party_id;
       this.ocpiEndpoint.businessDetails = credential.business_details;
       // Save endpoint
       this.ocpiEndpoint.status = OCPIRegistrationStatus.REGISTERED;
-      await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant.id, this.ocpiEndpoint);
+      await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant, this.ocpiEndpoint);
       // Send success
       registerResult.statusCode = StatusCodes.OK;
       registerResult.statusText = ReasonPhrases.OK;
@@ -154,7 +153,7 @@ export default abstract class OCPIClient {
   }
 
   public async getVersions(): Promise<any> {
-    Logging.logInfo({
+    await Logging.logInfo({
       tenantID: this.tenant.id,
       action: ServerAction.OCPI_GET_VERSIONS,
       message: `Get OCPI Versions at ${this.ocpiEndpoint.baseUrl}`,
@@ -170,7 +169,7 @@ export default abstract class OCPIClient {
 
   public async getServices(): Promise<any> {
     // Log
-    Logging.logInfo({
+    await Logging.logInfo({
       tenantID: this.tenant.id,
       action: ServerAction.OCPI_GET_VERSIONS,
       message: `Get OCPI Services at ${this.ocpiEndpoint.versionUrl}`,
@@ -188,7 +187,7 @@ export default abstract class OCPIClient {
     // Get credentials url
     const credentialsUrl = this.getEndpointUrl('credentials', ServerAction.OCPI_POST_CREDENTIALS);
     // Log
-    Logging.logInfo({
+    await Logging.logInfo({
       tenantID: this.tenant.id,
       action: ServerAction.OCPI_POST_CREDENTIALS,
       message: `Delete Credentials at ${credentialsUrl}`,
@@ -208,9 +207,9 @@ export default abstract class OCPIClient {
   public async postCredentials(): Promise<AxiosResponse<OCPICredential>> {
     // Get credentials url
     const credentialsUrl = this.getEndpointUrl('credentials', ServerAction.OCPI_POST_CREDENTIALS);
-    const credentials = await OCPIUtilsService.buildOCPICredentialObject(this.tenant.id, this.ocpiEndpoint.localToken, this.ocpiEndpoint.role);
+    const credentials = await OCPIUtilsService.buildOCPICredentialObject(this.tenant, this.ocpiEndpoint.localToken, this.ocpiEndpoint.role);
     // Log
-    Logging.logInfo({
+    await Logging.logInfo({
       tenantID: this.tenant.id,
       action: ServerAction.OCPI_POST_CREDENTIALS,
       message: `Post Credentials at ${credentialsUrl}`,

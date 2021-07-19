@@ -105,7 +105,7 @@ export default class EmspOCPIClient extends OCPIClient {
       };
     }
     // Save
-    await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant.id, this.ocpiEndpoint);
+    await OCPIEndpointStorage.saveOcpiEndpoint(this.tenant, this.ocpiEndpoint);
     const executionDurationSecs = (new Date().getTime() - startTime) / 1000;
     await Logging.logOcpiResult(this.tenant.id, ServerAction.OCPI_PUSH_TOKENS,
       MODULE_NAME, 'sendTokens', result,
@@ -118,7 +118,7 @@ export default class EmspOCPIClient extends OCPIClient {
   }
 
   public async checkAndGetCompany(): Promise<Company> {
-    let company = await CompanyStorage.getCompany(this.tenant.id, this.ocpiEndpoint.id);
+    let company = await CompanyStorage.getCompany(this.tenant, this.ocpiEndpoint.id);
     if (!company) {
       company = {
         id: this.ocpiEndpoint.id,
@@ -126,7 +126,7 @@ export default class EmspOCPIClient extends OCPIClient {
         issuer: false,
         createdOn: new Date()
       } as Company;
-      await CompanyStorage.saveCompany(this.tenant.id, company, false);
+      await CompanyStorage.saveCompany(this.tenant, company, false);
     }
     return company;
   }
@@ -152,7 +152,7 @@ export default class EmspOCPIClient extends OCPIClient {
       locationsUrl = `${locationsUrl}?limit=5`;
     }
     const company = await this.checkAndGetCompany();
-    const sites = await SiteStorage.getSites(this.tenant.id,
+    const sites = await SiteStorage.getSites(this.tenant,
       { companyIDs: [ company.id ] }, Constants.DB_PARAMS_MAX_LIMIT);
     let nextResult = true;
     do {
@@ -225,7 +225,7 @@ export default class EmspOCPIClient extends OCPIClient {
       if (!Utils.isEmptyArray(sessions)) {
         await Promise.map(sessions, async (session: OCPISession) => {
           try {
-            await OCPIUtilsService.updateTransaction(this.tenant.id, session);
+            await OCPIUtilsService.updateTransaction(this.tenant, session);
             result.success++;
           } catch (error) {
             result.failure++;
@@ -283,7 +283,7 @@ export default class EmspOCPIClient extends OCPIClient {
       if (!Utils.isEmptyArray(cdrs)) {
         await Promise.map(cdrs, async (cdr: OCPICdr) => {
           try {
-            await OCPIUtilsService.processCdr(this.tenant.id, cdr);
+            await OCPIUtilsService.processCdr(this.tenant, cdr);
             result.success++;
           } catch (error) {
             result.failure++;
@@ -339,14 +339,14 @@ export default class EmspOCPIClient extends OCPIClient {
           Utils.convertToFloat(location.coordinates.latitude)
         ];
       }
-      site.id = await SiteStorage.saveSite(this.tenant.id, site, false);
+      site.id = await SiteStorage.saveSite(this.tenant, site, false);
       // Push the Site then it can be retrieve in the next round
       existingSites.push(site);
     }
     const locationName = site.name + Constants.OCPI_SEPARATOR + location.id;
     // Handle Site Area
     const siteAreas = await SiteAreaStorage.getSiteAreas(this.tenant.id,
-      { siteIDs: [site.id], name: locationName, issuer: false },
+      { siteIDs: [site.id], name: locationName, issuer: false, withSite: true },
       Constants.DB_PARAMS_SINGLE_RECORD);
     let siteArea = !Utils.isEmptyArray(siteAreas.result) ? siteAreas.result[0] : null;
     if (!siteArea) {
@@ -402,9 +402,11 @@ export default class EmspOCPIClient extends OCPIClient {
         }
         // Update Charging Station
         const chargingStation = OCPIUtilsService.convertEvseToChargingStation(evse, location);
-        chargingStation.siteAreaID = siteArea.id;
+        chargingStation.companyID = siteArea.site?.companyID;
         chargingStation.siteID = siteArea.siteID;
+        chargingStation.siteAreaID = siteArea.id;
         await ChargingStationStorage.saveChargingStation(this.tenant.id, chargingStation);
+        await ChargingStationStorage.saveChargingStationOcpiData(this.tenant.id, chargingStation.id, chargingStation.ocpiData);
         await Logging.logDebug({
           tenantID: this.tenant.id,
           action: ServerAction.OCPI_PULL_LOCATIONS,
@@ -464,7 +466,7 @@ export default class EmspOCPIClient extends OCPIClient {
       uid: tag.id,
       type: OCPIUtils.getOCPITokenTypeFromID(tag.id),
       auth_id: tag.user.id,
-      visual_number: tag.user.id,
+      visual_number: tag.visualID,
       issuer: this.tenant.name,
       valid: true,
       whitelist: OCPITokenWhitelist.ALLOWED_OFFLINE,
@@ -510,10 +512,10 @@ export default class EmspOCPIClient extends OCPIClient {
     if (!transaction || !transaction.ocpiData || !transaction.ocpiData.session || transaction.issuer) {
       throw new BackendError({
         action: ServerAction.OCPI_START_SESSION,
-        source: transaction ? transaction.chargeBoxID : null,
+        source: transaction?.chargeBoxID,
         message: `OCPI Remote Stop Session is not available for the Session ID '${transactionId}'`,
         module: MODULE_NAME, method: 'remoteStopSession',
-        detailedMessages: { transaction: transaction }
+        detailedMessages: { transaction }
       });
     }
     const payload: OCPIStopSession = {

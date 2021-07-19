@@ -211,7 +211,7 @@ export default class EMSPLocationsEndpoint extends AbstractEndpoint {
       // Update Location
       const company = await ocpiClient.checkAndGetCompany();
       const siteName = OCPIUtils.buildOperatorName(countryCode, partyId);
-      const sites = await SiteStorage.getSites(tenant.id, { companyIDs: [company.id], name: siteName }, Constants.DB_PARAMS_SINGLE_RECORD);
+      const sites = await SiteStorage.getSites(tenant, { companyIDs: [company.id], name: siteName }, Constants.DB_PARAMS_SINGLE_RECORD);
       await ocpiClient.processLocation(location, company, sites.result);
     }
     return OCPIUtils.success();
@@ -289,7 +289,7 @@ export default class EMSPLocationsEndpoint extends AbstractEndpoint {
     if (ocpiConnector.standard) {
       foundConnector.type = OCPIUtilsService.convertOCPIConnectorType2ConnectorType(ocpiConnector.standard);
     }
-    await ChargingStationStorage.saveChargingStation(tenant.id, chargingStation);
+    await ChargingStationStorage.saveChargingStationConnectors(tenant.id, chargingStation.id, chargingStation.connectors);
   }
 
   private async updateEvse(tenant: Tenant, evse: OCPIEvse, location: OCPILocation) {
@@ -359,7 +359,7 @@ export default class EMSPLocationsEndpoint extends AbstractEndpoint {
         type: OCPIUtilsService.convertOCPIConnectorType2ConnectorType(evseConnector.standard),
       });
     }
-    await ChargingStationStorage.saveChargingStation(tenant.id, chargingStation);
+    await ChargingStationStorage.saveChargingStationConnectors(tenant.id, chargingStation.id, chargingStation.connectors);
   }
 }
 

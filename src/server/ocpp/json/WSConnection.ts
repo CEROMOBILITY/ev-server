@@ -19,37 +19,32 @@ import http from 'http';
 const MODULE_NAME = 'WSConnection';
 
 export default abstract class WSConnection {
-  public code: string;
-  public message: string;
-  public details: string;
   protected initialized: boolean;
   protected wsServer: JsonCentralSystemServer;
-  protected readonly chargingStationID: string;
-  protected readonly tenantID: string;
+  private readonly chargingStationID: string;
+  private readonly tenantID: string;
   private readonly token: string;
   private readonly url: string;
   private readonly clientIP: string | string[];
   private readonly wsConnection: WebSocket;
-  private req: http.IncomingMessage;
   private requests: { [id: string]: OCPPRequest };
-  private tenantIsValid: boolean;
+  private validTenant: boolean;
 
   constructor(wsConnection: WebSocket, req: http.IncomingMessage, wsServer: JsonCentralSystemServer) {
     // Init
     this.url = req.url.trim().replace(/\b(\?|&).*/, ''); // Filter trailing URL parameters
     this.clientIP = Utils.getRequestIP(req);
     this.wsConnection = wsConnection;
-    this.req = req;
     this.initialized = false;
     this.wsServer = wsServer;
-    Logging.logDebug({
+    void Logging.logDebug({
       tenantID: Constants.DEFAULT_TENANT,
       action: ServerAction.WS_CONNECTION_OPENED,
       module: MODULE_NAME, method: 'constructor',
       message: `WS connection opening attempts with URL: '${req.url}'`,
     });
     // Default
-    this.tenantIsValid = false;
+    this.validTenant = false;
     this.requests = {};
     // Check URL: remove starting and trailing '/'
     if (this.url.endsWith('/')) {
@@ -89,7 +84,7 @@ export default abstract class WSConnection {
       logMsg = `Charging Station connection attempts with URL: '${req.url}'`;
       action = ServerAction.WS_JSON_CONNECTION_OPENED;
     }
-    Logging.logDebug({
+    void Logging.logDebug({
       tenantID: this.tenantID,
       source: this.chargingStationID,
       action: action,
@@ -104,7 +99,7 @@ export default abstract class WSConnection {
         message: `The Charging Station ID is invalid: '${this.chargingStationID}'`
       });
       // Log in the right Tenants
-      Logging.logException(
+      void Logging.logException(
         backendError,
         ServerAction.WS_CONNECTION,
         Constants.CENTRAL_SERVER,
@@ -125,19 +120,7 @@ export default abstract class WSConnection {
     try {
       // Check Tenant?
       await DatabaseUtils.checkTenant(this.tenantID);
-      this.tenantIsValid = true;
-      // Cloud Foundry?
-      if (Configuration.isCloudFoundry()) {
-        // Yes: Save the CF App and Instance ID to call the Charging Station from the Rest server
-        const chargingStation = await ChargingStationStorage.getChargingStation(this.tenantID, this.getChargingStationID());
-        // Found?
-        if (chargingStation) {
-          // Update CF Instance
-          chargingStation.cfApplicationIDAndInstanceIndex = Configuration.getCFApplicationIDAndInstanceIndex();
-          // Save it
-          await ChargingStationStorage.saveChargingStation(this.tenantID, chargingStation);
-        }
-      }
+      this.validTenant = true;
     } catch (error) {
       // Custom Error
       await Logging.logException(error, ServerAction.WS_CONNECTION, this.getChargingStationID(), 'WSConnection', 'initialize', this.tenantID);
@@ -146,7 +129,7 @@ export default abstract class WSConnection {
         action: ServerAction.WS_CONNECTION,
         module: MODULE_NAME, method: 'initialize',
         message: `Invalid Tenant '${this.tenantID}' in URL '${this.getURL()}'`,
-        detailedMessages: { error: error.message, stack: error.stack }
+        detailedMessages: { error: error.stack }
       });
     }
   }
@@ -259,10 +242,6 @@ export default abstract class WSConnection {
     return this.wsConnection;
   }
 
-  public getWSServer(): JsonCentralSystemServer {
-    return this.wsServer;
-  }
-
   public getURL(): string {
     return this.url;
   }
@@ -276,7 +255,8 @@ export default abstract class WSConnection {
     return this.sendMessage(messageId, error, OCPPMessageType.CALL_ERROR_MESSAGE);
   }
 
-  public async sendMessage(messageId: string, commandParams: Record<string, unknown> | OCPPError, messageType: OCPPMessageType = OCPPMessageType.CALL_RESULT_MESSAGE, commandName?: Command | ServerAction): Promise<unknown> {
+  public async sendMessage(messageId: string, commandParams: Record<string, unknown> | OCPPError, messageType: OCPPMessageType,
+      commandName?: Command | ServerAction): Promise<unknown> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     // Send a message through WSConnection
@@ -348,12 +328,10 @@ export default abstract class WSConnection {
   }
 
   public getTenantID(): string {
-    // Check
     if (this.isTenantValid()) {
-      // Ok
       return this.tenantID;
     }
-    // No, go to the master tenant
+    // No: go to the master tenant
     return Constants.DEFAULT_TENANT;
   }
 
@@ -362,11 +340,11 @@ export default abstract class WSConnection {
   }
 
   public getID(): string {
-    return `${this.getTenantID()}~${this.getChargingStationID()}}`;
+    return `${this.getTenantID()}~${this.getChargingStationID()}`;
   }
 
   public isTenantValid(): boolean {
-    return this.tenantIsValid;
+    return this.validTenant;
   }
 
   public isWSConnectionOpen(): boolean {

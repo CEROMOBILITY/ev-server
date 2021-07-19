@@ -10,6 +10,7 @@ import Constants from '../../../utils/Constants';
 import Cypher from '../../../utils/Cypher';
 import Logging from '../../../utils/Logging';
 import { ServerAction } from '../../../types/Server';
+import Tenant from '../../../types/Tenant';
 import Utils from '../../../utils/Utils';
 import moment from 'moment';
 
@@ -19,9 +20,9 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
   private axiosInstance: AxiosInstance;
   private timestampReference = moment.utc('20000101 00:00:00', 'YYYYMMDD HH:mm:ss');
 
-  public constructor(tenantID: string, settings: AssetSetting, connection: AssetConnectionSetting) {
-    super(tenantID, settings, connection);
-    this.axiosInstance = AxiosFactory.getAxiosInstance(tenantID);
+  public constructor(tenant: Tenant, settings: AssetSetting, connection: AssetConnectionSetting) {
+    super(tenant, settings, connection);
+    this.axiosInstance = AxiosFactory.getAxiosInstance(tenant.id);
   }
 
   public async checkConnection(): Promise<void> {
@@ -29,6 +30,10 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
   }
 
   public async retrieveConsumptions(asset: Asset, manualCall: boolean): Promise<AbstractCurrentConsumption[]> {
+    // Check if refresh interval of connection is exceeded
+    if (!manualCall && !this.checkIfIntervalExceeded(asset)) {
+      return [];
+    }
     // Set new Token
     const token = await this.connect();
     // Calculate timestamp of the last consumption in seconds from 1.1.2000, if not available get start of day
@@ -43,7 +48,7 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
         }
       );
       await Logging.logDebug({
-        tenantID: this.tenantID,
+        tenantID: this.tenant.id,
         source: Constants.CENTRAL_SERVER,
         action: ServerAction.RETRIEVE_ASSET_CONSUMPTION,
         message: `${asset.name} > Iothink web service has been called successfully`,
@@ -58,31 +63,72 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
         method: 'retrieveConsumption',
         action: ServerAction.RETRIEVE_ASSET_CONSUMPTION,
         message: 'Error while retrieving the asset consumption',
-        detailedMessages: { request, token, error: error.message, stack: error.stack, asset }
+        detailedMessages: { request, token, error: error.stack, asset }
       });
     }
   }
 
   private filterConsumptionRequest(asset: Asset, data: any, manualCall: boolean): AbstractCurrentConsumption[] {
     const consumptions: AbstractCurrentConsumption[] = [];
+    // Create helper map to merge the arrays to combined objects
+    const mergedResponseMap = new Map();
+    // Rename the value property in logs with tag reference
+    for (const dataSet of data.historics) {
+      for (const log of dataSet.logs) {
+        log[dataSet.tagReference] = log['value'];
+        delete log['value'];
+        mergedResponseMap.set(log.timestamp, { ...mergedResponseMap.get(log.timestamp), ...log });
+      }
+    }
+    // Create Array with merged consumptions from map
+    const mergedResponseArray = Array.from(mergedResponseMap.values());
+    // Sort the Array according the timestamp
+    mergedResponseArray.sort((a, b) => a.timestamp - b.timestamp);
     const energyDirection = asset.assetType === AssetType.PRODUCTION ? -1 : 1;
-    if (!Utils.isEmptyArray(data.historics)) {
-      for (let i = 0; i < data.historics[0].logs.length; i++) {
-        const consumption = {} as AbstractCurrentConsumption;
-        consumption.currentInstantWatts = this.getPropertyValue(data.historics, IothinkProperty.POWER_ACTIVE, i) * energyDirection;
-        consumption.currentInstantWattsL1 = this.getPropertyValue(data.historics, IothinkProperty.POWER_L1, i) * energyDirection;
-        consumption.currentInstantWattsL2 = this.getPropertyValue(data.historics, IothinkProperty.POWER_L2, i) * energyDirection;
-        consumption.currentInstantWattsL3 = this.getPropertyValue(data.historics, IothinkProperty.POWER_L3, i) * energyDirection;
-        if (asset.siteArea?.voltage) {
-          consumption.currentInstantAmps = consumption.currentInstantWatts / asset.siteArea.voltage;
-          consumption.currentInstantAmpsL1 = consumption.currentInstantWattsL1 / asset.siteArea.voltage;
-          consumption.currentInstantAmpsL2 = consumption.currentInstantWattsL2 / asset.siteArea.voltage;
-          consumption.currentInstantAmpsL3 = consumption.currentInstantWattsL3 / asset.siteArea.voltage;
+    if (!Utils.isEmptyArray(mergedResponseArray)) {
+      for (const mergedConsumption of mergedResponseArray) {
+        if (Utils.isUndefined(mergedConsumption[IothinkProperty.IO_POW_ACTIVE])) {
+          // Skip if current power is undefined
+          continue;
         }
-        consumption.lastConsumption = {
-          timestamp: moment(this.timestampReference).add(data.historics[0].logs[i].timestamp, 'seconds').toDate(),
-          value: consumption.currentInstantWatts / 60
-        };
+        const consumption = {} as AbstractCurrentConsumption;
+        switch (asset.assetType) {
+          case AssetType.CONSUMPTION:
+            consumption.currentInstantWatts = Utils.createDecimal(this.getPropertyValue(mergedConsumption, IothinkProperty.IO_POW_ACTIVE)).mul(energyDirection * 1000).toNumber();
+            consumption.currentTotalConsumptionWh = this.getPropertyValue(mergedConsumption, IothinkProperty.IO_ENERGY_INPUT);
+            if (asset.siteArea?.voltage) {
+              consumption.currentInstantAmps = Utils.createDecimal(consumption.currentInstantWatts).div(asset.siteArea.voltage).toNumber();
+            }
+            consumption.lastConsumption = {
+              timestamp: moment(this.timestampReference).add(mergedConsumption.timestamp, 'seconds').toDate(),
+              value: consumption.currentTotalConsumptionWh
+            };
+            break;
+          case AssetType.PRODUCTION:
+            consumption.currentInstantWatts = Utils.createDecimal(this.getPropertyValue(mergedConsumption, IothinkProperty.IO_POW_ACTIVE)).mul(energyDirection * 1000).toNumber();
+            consumption.currentTotalConsumptionWh = this.getPropertyValue(mergedConsumption, IothinkProperty.IO_ENERGY);
+            if (asset.siteArea?.voltage) {
+              consumption.currentInstantAmps = Utils.createDecimal(consumption.currentInstantWatts).div(asset.siteArea.voltage).toNumber();
+            }
+            consumption.lastConsumption = {
+              timestamp: moment(this.timestampReference).add(mergedConsumption.timestamp, 'seconds').toDate(),
+              value: consumption.currentTotalConsumptionWh
+            };
+            break;
+          case AssetType.CONSUMPTION_AND_PRODUCTION:
+            consumption.currentInstantWatts = Utils.createDecimal(this.getPropertyValue(mergedConsumption, IothinkProperty.IO_POW_ACTIVE)).mul(1000).toNumber();
+            consumption.currentStateOfCharge = this.getPropertyValue(mergedConsumption, IothinkProperty.IO_SOC);
+            consumption.currentConsumptionWh = this.getPropertyValue(mergedConsumption, IothinkProperty.IO_ENERGY_CHARGE)
+            - this.getPropertyValue(mergedConsumption, IothinkProperty.IO_ENERGY_DISCHARGE);
+            if (asset.siteArea?.voltage) {
+              consumption.currentInstantAmps = Utils.createDecimal(consumption.currentInstantWatts).div(asset.siteArea.voltage).toNumber();
+            }
+            consumption.lastConsumption = {
+              timestamp: moment(this.timestampReference).add(mergedConsumption.timestamp, 'seconds').toDate(),
+              value: consumption.currentConsumptionWh
+            };
+            break;
+        }
         consumptions.push(consumption);
       }
     }
@@ -92,11 +138,9 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
     return consumptions;
   }
 
-  private getPropertyValue(data: any[], propertyName: string, index: number): number {
-    for (const measure of data) {
-      if (measure.tagReference === propertyName) {
-        return Utils.convertToFloat(Utils.createDecimal(measure.logs[index]?.value ? measure.logs[index].value : 0)) * 1000;
-      }
+  private getPropertyValue(data: any, propertyName: string): number {
+    if (!Utils.isUndefined(data[propertyName])) {
+      return Utils.convertToFloat(data[propertyName]);
     }
     return 0;
   }
@@ -111,7 +155,6 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
       this.axiosInstance.post(`${this.connection.url}/token`,
         credentials,
         {
-          // @ts-ignore
           'axios-retry': {
             retries: 0
           },
@@ -127,7 +170,7 @@ export default class IothinkAssetIntegration extends AssetIntegration<AssetSetti
     const params = new URLSearchParams();
     params.append('grant_type', 'password');
     params.append('username', this.connection.iothinkConnection.user);
-    params.append('password', await Cypher.decrypt(this.tenantID, this.connection.iothinkConnection.password));
+    params.append('password', await Cypher.decrypt(this.tenant.id, this.connection.iothinkConnection.password));
     return params;
   }
 

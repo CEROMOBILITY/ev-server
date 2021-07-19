@@ -1,6 +1,8 @@
 import global, { FilterParams } from '../../types/GlobalType';
 
 import Constants from '../../utils/Constants';
+import DatabaseUtils from './DatabaseUtils';
+import { DeletedResult } from '../../types/DataResult';
 import PerformanceRecord from '../../types/Performance';
 import Utils from '../../utils/Utils';
 
@@ -9,13 +11,13 @@ export default class PerformanceStorage {
     // Set
     const performanceRecordMDB: any = {
       tenantID: performanceRecord.tenantID && performanceRecord.tenantID !== Constants.DEFAULT_TENANT ?
-        Utils.convertToObjectID(performanceRecord.tenantID) : Constants.DEFAULT_TENANT,
+        DatabaseUtils.convertToObjectID(performanceRecord.tenantID) : Constants.DEFAULT_TENANT,
       timestamp: Utils.convertToDate(performanceRecord.timestamp),
       host: performanceRecord.host,
-      cpusInfo: performanceRecord.cpusInfo,
+      numberOfCPU: performanceRecord.numberOfCPU,
+      modelOfCPU: performanceRecord.modelOfCPU,
       memoryTotalGb: performanceRecord.memoryTotalGb,
       memoryFreeGb: performanceRecord.memoryFreeGb,
-      networkInterface: performanceRecord.networkInterface,
       loadAverageLastMin: performanceRecord.loadAverageLastMin,
       process: performanceRecord.process,
       processMemoryUsage: performanceRecord.processMemoryUsage,
@@ -24,14 +26,15 @@ export default class PerformanceStorage {
       module: performanceRecord.module,
       method: performanceRecord.method,
       action: performanceRecord.action,
+      group: performanceRecord.group,
     };
     // Add user only if provided
     if (performanceRecord.userID) {
-      performanceRecordMDB.userID = Utils.convertToObjectID(performanceRecord.userID);
+      performanceRecordMDB.userID = DatabaseUtils.convertToObjectID(performanceRecord.userID);
     }
     // Add parent only if provided
     if (performanceRecord.parentID) {
-      performanceRecordMDB.parentID = Utils.convertToObjectID(performanceRecord.parentID);
+      performanceRecordMDB.parentID = DatabaseUtils.convertToObjectID(performanceRecord.parentID);
     }
     // Add nbr charging stations only if provided
     if (Utils.convertToInt(performanceRecord.numberOfChargingStations) > 0) {
@@ -51,12 +54,16 @@ export default class PerformanceStorage {
       performanceRecordMDB.httpCode = Utils.convertToInt(performanceRecord.httpCode);
       performanceRecordMDB.httpUrl = performanceRecord.httpUrl;
     }
+    // Add Charging Station
+    if (performanceRecord.chargingStationID) {
+      performanceRecordMDB.chargingStationID = performanceRecord.chargingStationID;
+    }
     // Insert
     await global.database.getCollection<any>(Constants.DEFAULT_TENANT, 'performances')
       .insertOne(performanceRecordMDB);
   }
 
-  public static async deletePerformanceRecords(params?: { deleteUpToDate: Date }): Promise<{ ok?: number; n?: number; }> {
+  public static async deletePerformanceRecords(params?: { deleteUpToDate: Date }): Promise<DeletedResult> {
     // Build filter
     const filters: FilterParams = {};
     // Date provided?
@@ -68,6 +75,6 @@ export default class PerformanceStorage {
     const result = await global.database.getCollection<PerformanceRecord>(Constants.DEFAULT_TENANT, 'performances')
       .deleteMany(filters);
     // Return the result
-    return result.result;
+    return { acknowledged: result.acknowledged, deletedCount: result.deletedCount };
   }
 }

@@ -25,9 +25,7 @@ export default class JsonRestWSConnection extends WSConnection {
     if (!this.initialized) {
       // Call super class
       await super.initialize();
-      // Ok
       this.initialized = true;
-      // Log
       await Logging.logInfo({
         tenantID: this.getTenantID(),
         source: this.getChargingStationID(),
@@ -40,7 +38,7 @@ export default class JsonRestWSConnection extends WSConnection {
 
   public onError(errorEvent: ErrorEvent): void {
     // Log
-    Logging.logError({
+    void Logging.logError({
       tenantID: this.getTenantID(),
       source: (this.getChargingStationID() ? this.getChargingStationID() : ''),
       module: MODULE_NAME, method: 'onError',
@@ -52,7 +50,7 @@ export default class JsonRestWSConnection extends WSConnection {
 
   public onClose(closeEvent: CloseEvent): void {
     // Log
-    Logging.logInfo({
+    void Logging.logInfo({
       tenantID: this.getTenantID(),
       source: (this.getChargingStationID() ? this.getChargingStationID() : ''),
       module: MODULE_NAME, method: 'onClose',

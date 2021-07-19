@@ -21,7 +21,7 @@ const MODULE_NAME = 'ODataServer';
 export default class ODataRestAdapter {
   public static restServerUrl: string;
 
-  static async query(collection, query?, req?, cb?) {
+  static async query(collection, query?, req?, cb?): Promise<void> {
     // Get tenant from url
     const requestedHost = req.host;
     // Split
@@ -97,18 +97,18 @@ export default class ODataRestAdapter {
       }
     } catch (error) {
       // Add logging
-      Logging.logError({
+      await Logging.logError({
         tenantID: req.user.tenantID,
         module: MODULE_NAME, method: 'query',
         action: ServerAction.ODATA_SERVER,
         message: error.message,
-        detailedMessages: { error: error.message, stack: error.stack }
+        detailedMessages: { error: error.stack }
       });
       cb(error);
     }
   }
 
-  static registerAdapter(oDataServer) {
+  static registerAdapter(oDataServer): void {
     if (!oDataServer) {
       return;
     }

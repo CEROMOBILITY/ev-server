@@ -3,6 +3,7 @@ import { Application, NextFunction, Response } from 'express';
 import ExpressUtils from '../ExpressUtils';
 import OICPServiceConfiguration from '../../types/configuration/OICPServiceConfiguration';
 import OICPServices from './OICPServices';
+import { ServerUtils } from '../ServerUtils';
 import { TenantIdHoldingRequest } from './AbstractOICPService';
 
 const MODULE_NAME = 'OICPServer';
@@ -11,7 +12,6 @@ export default class OICPServer {
   private oicpRestConfig: OICPServiceConfiguration;
   private expressApplication: Application;
 
-  // Create the rest server
   constructor(oicpRestConfig: OICPServiceConfiguration) {
     // Keep params
     this.oicpRestConfig = oicpRestConfig;
@@ -21,6 +21,7 @@ export default class OICPServer {
     const oicpServices = new OICPServices(this.oicpRestConfig);
     // Register all services in express
     oicpServices.getOICPServiceImplementations().forEach((oicpService) => {
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
       this.expressApplication.use(oicpService.getPath(), async (req: TenantIdHoldingRequest, res: Response, next: NextFunction) => {
         try {
           await oicpService.restService(req, res, next);
@@ -33,9 +34,8 @@ export default class OICPServer {
     ExpressUtils.postInitApplication(this.expressApplication);
   }
 
-  // Start the server
   start(): void {
-    ExpressUtils.startServer(this.oicpRestConfig, ExpressUtils.createHttpServer(this.oicpRestConfig, this.expressApplication), 'OICP', MODULE_NAME);
+    ServerUtils.startHttpServer(this.oicpRestConfig, ServerUtils.createHttpServer(this.oicpRestConfig, this.expressApplication), MODULE_NAME, 'OICP');
   }
 }
 

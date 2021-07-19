@@ -2,7 +2,6 @@ import ContextDefinition, { TenantDefinition } from './ContextDefinition';
 import { SettingDB, SettingDBContent } from '../../../src/types/Setting';
 
 import AssetStorage from '../../../src/storage/mongodb/AssetStorage';
-import BillingContext from './BillingContext';
 import CentralServerService from '../client/CentralServerService';
 import ChargingStation from '../../../src/types/ChargingStation';
 import CompanyStorage from '../../../src/storage/mongodb/CompanyStorage';
@@ -71,10 +70,10 @@ export default class ContextBuilder {
 
   async destroy(): Promise<void> {
     if (this.tenantsContexts && this.tenantsContexts.length > 0) {
-      this.tenantsContexts.forEach(async (tenantContext) => {
+      for (const tenantContext of this.tenantsContexts) {
         console.log(`Delete Tenant context '${tenantContext.getTenant().id} (${tenantContext.getTenant().subdomain})`);
         await this.superAdminCentralServerService.deleteEntity(this.superAdminCentralServerService.tenantApi, tenantContext.getTenant());
-      });
+      }
     }
     // Delete all tenants
     for (const tenantContextDef of ContextDefinition.TENANT_CONTEXT_LIST) {
@@ -197,7 +196,7 @@ export default class ContextBuilder {
             localToken: ContextBuilder.generateLocalToken(OCPIRole.CPO, tenantContextDef.subdomain),
             token: 'TOIOP-OCPI-TOKEN-cpo-xxxx-xxxx-yyyy'
           } as OCPIEndpoint;
-          await OCPIEndpointStorage.saveOcpiEndpoint(buildTenant.id, cpoEndpoint);
+          await OCPIEndpointStorage.saveOcpiEndpoint(buildTenant, cpoEndpoint);
           const emspEndpoint = {
             name: 'EMSP Endpoint',
             role: OCPIRole.EMSP,
@@ -210,7 +209,7 @@ export default class ContextBuilder {
             localToken: ContextBuilder.generateLocalToken(OCPIRole.EMSP, tenantContextDef.subdomain),
             token: 'TOIOP-OCPI-TOKEN-emsp-xxxx-xxxx-yyyy'
           } as OCPIEndpoint;
-          await OCPIEndpointStorage.saveOcpiEndpoint(buildTenant.id, emspEndpoint);
+          await OCPIEndpointStorage.saveOcpiEndpoint(buildTenant, emspEndpoint);
         }
       }
     }
@@ -270,7 +269,8 @@ export default class ContextBuilder {
         dummyCompany.createdBy = { id: adminUser.id };
         dummyCompany.createdOn = moment().toISOString();
         dummyCompany.issuer = true;
-        await CompanyStorage.saveCompany(buildTenant.id, dummyCompany);
+        console.log(`${buildTenant.id} (${buildTenant.name}) - Company '${dummyCompany.name}'`);
+        await CompanyStorage.saveCompany(buildTenant, dummyCompany);
         newTenantContext.getContext().companies.push(dummyCompany);
       }
       // Build sites/sitearea according to tenant definition
@@ -287,8 +287,8 @@ export default class ContextBuilder {
         siteTemplate.id = siteContextDef.id;
         siteTemplate.issuer = true;
         site = siteTemplate;
-        site.id = await SiteStorage.saveSite(buildTenant.id, siteTemplate, true);
-        await SiteStorage.addUsersToSite(buildTenant.id, site.id, userListToAssign.map((user) => user.id));
+        site.id = await SiteStorage.saveSite(buildTenant, siteTemplate, true);
+        await SiteStorage.addUsersToSite(buildTenant, site.id, userListToAssign.map((user) => user.id));
         const siteContext = new SiteContext(site, newTenantContext);
         // Create site areas of current site
         for (const siteAreaDef of ContextDefinition.TENANT_SITEAREA_LIST.filter((siteArea) => siteArea.siteName === site.name)) {
@@ -384,7 +384,6 @@ export default class ContextBuilder {
     newTenantContext.addSiteContext(siteContext);
     // Create transaction/session data for a specific tenants:
     const statisticContext = new StatisticsContext(newTenantContext);
-    const billingContext = new BillingContext(newTenantContext);
     switch (tenantContextDef.tenantName) {
       case ContextDefinition.TENANT_CONTEXTS.TENANT_WITH_ALL_COMPONENTS:
         console.log(`${buildTenant.id} (${buildTenant.name}) - Transactions - Site Area '${ContextDefinition.SITE_CONTEXTS.SITE_BASIC}-${ContextDefinition.SITE_AREA_CONTEXTS.WITH_ACL}'`);
@@ -394,9 +393,6 @@ export default class ContextBuilder {
         console.log(`${buildTenant.id} (${buildTenant.name}) - Transactions - Unassigned Charging Stations`);
         await statisticContext.createTestData(ContextDefinition.SITE_CONTEXTS.NO_SITE, ContextDefinition.SITE_AREA_CONTEXTS.NO_SITE);
         break;
-      case ContextDefinition.TENANT_CONTEXTS.TENANT_BILLING:
-        console.log(`${buildTenant.id} (${buildTenant.name}) - Invoices`);
-        await billingContext.createTestData();
     }
     return newTenantContext;
   }

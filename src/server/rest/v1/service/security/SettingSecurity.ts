@@ -37,6 +37,12 @@ export default class SettingSecurity {
     return SettingSecurity._filterSettingRequest(request);
   }
 
+  public static filterBillingSettingUpdateRequest(request: any): Partial<SettingDB> {
+    const filteredRequest = SettingSecurity._filterSettingRequest(request.body);
+    filteredRequest.id = sanitize(request.params.id);
+    return filteredRequest;
+  }
+
   private static _filterSettingRequest(request: Partial<SettingDB>): Partial<SettingDB> {
     const settings: SettingDB = {
       identifier: sanitize(request.identifier),
@@ -206,6 +212,7 @@ export default class SettingSecurity {
               description: sanitize(connection.description),
               url: sanitize(connection.url),
               type: sanitize(connection.type),
+              refreshIntervalMins: sanitize(connection.refreshIntervalMins),
               timestamp: new Date(),
             };
             // Check type
@@ -226,6 +233,15 @@ export default class SettingSecurity {
                 sanitizedConnection.iothinkConnection = {
                   user: sanitize(connection.iothinkConnection.user),
                   password: sanitize(connection.iothinkConnection.password),
+                };
+                break;
+              case AssetConnectionType.WIT:
+                sanitizedConnection.witConnection = {
+                  authenticationUrl: sanitize(connection.witConnection.authenticationUrl),
+                  clientId: sanitize(connection.witConnection.clientId),
+                  clientSecret: sanitize(connection.witConnection.clientSecret),
+                  user: sanitize(connection.witConnection.user),
+                  password: sanitize(connection.witConnection.password),
                 };
                 break;
             }

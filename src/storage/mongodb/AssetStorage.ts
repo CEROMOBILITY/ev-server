@@ -7,7 +7,7 @@ import { DataResult } from '../../types/DataResult';
 import DatabaseUtils from './DatabaseUtils';
 import DbParams from '../../types/database/DbParams';
 import Logging from '../../utils/Logging';
-import { ObjectID } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import Utils from '../../utils/Utils';
 
 const MODULE_NAME = 'AssetStorage';
@@ -28,8 +28,8 @@ export default class AssetStorage {
     // Check Tenant
     await DatabaseUtils.checkTenant(tenantID);
     // Read DB
-    const assetImageMDB = await global.database.getCollection<{ _id: ObjectID; image: string }>(tenantID, 'assetimages')
-      .findOne({ _id: Utils.convertToObjectID(id) });
+    const assetImageMDB = await global.database.getCollection<{ _id: ObjectId; image: string }>(tenantID, 'assetimages')
+      .findOne({ _id: DatabaseUtils.convertToObjectID(id) });
     // Debug
     await Logging.traceEnd(tenantID, MODULE_NAME, 'getAssetImage', uniqueTimerID, assetImageMDB);
     return {
@@ -45,17 +45,20 @@ export default class AssetStorage {
     await DatabaseUtils.checkTenant(tenantID);
     // Set
     const assetMDB: any = {
-      _id: assetToSave.id ? Utils.convertToObjectID(assetToSave.id) : new ObjectID(),
+      _id: assetToSave.id ? DatabaseUtils.convertToObjectID(assetToSave.id) : new ObjectId(),
       name: assetToSave.name,
-      siteAreaID: Utils.convertToObjectID(assetToSave.siteAreaID),
-      siteID: Utils.convertToObjectID(assetToSave.siteID),
+      siteAreaID: DatabaseUtils.convertToObjectID(assetToSave.siteAreaID),
+      siteID: DatabaseUtils.convertToObjectID(assetToSave.siteID),
       coordinates: Utils.containsGPSCoordinates(assetToSave.coordinates) ? assetToSave.coordinates.map(
         (coordinate) => Utils.convertToFloat(coordinate)) : [],
       assetType: assetToSave.assetType,
       excludeFromSmartCharging: Utils.convertToBoolean(assetToSave.excludeFromSmartCharging),
+      variationThresholdPercent: Utils.convertToFloat(assetToSave.variationThresholdPercent),
+      powerWattsLastSmartChargingRun: Utils.convertToFloat(assetToSave.powerWattsLastSmartChargingRun),
       fluctuationPercent:  Utils.convertToFloat(assetToSave.fluctuationPercent),
       staticValueWatt: Utils.convertToFloat(assetToSave.staticValueWatt),
-      dynamicAsset: assetToSave.dynamicAsset,
+      dynamicAsset: Utils.convertToBoolean(assetToSave.dynamicAsset),
+      usesPushAPI: Utils.convertToBoolean(assetToSave.usesPushAPI),
       issuer: Utils.convertToBoolean(assetToSave.issuer),
       connectionID: assetToSave.connectionID,
       meterID: assetToSave.meterID,
@@ -90,11 +93,11 @@ export default class AssetStorage {
     );
     // Save Image
     if (saveImage) {
-      await AssetStorage.saveAssetImage(tenantID, assetMDB._id.toHexString(), assetToSave.image);
+      await AssetStorage.saveAssetImage(tenantID, assetMDB._id.toString(), assetToSave.image);
     }
     // Debug
     await Logging.traceEnd(tenantID, MODULE_NAME, 'saveAsset', uniqueTimerID, assetMDB);
-    return assetMDB._id.toHexString();
+    return assetMDB._id.toString();
   }
 
   public static async getAssets(tenantID: string,
@@ -126,7 +129,7 @@ export default class AssetStorage {
       filters.siteAreaID = null;
     } else if (!Utils.isEmptyArray(params.siteAreaIDs)) {
       filters.siteAreaID = {
-        $in: params.siteAreaIDs.map((id) => Utils.convertToObjectID(id))
+        $in: params.siteAreaIDs.map((id) => DatabaseUtils.convertToObjectID(id))
       };
     }
     // Issuer
@@ -136,7 +139,7 @@ export default class AssetStorage {
     // Sites
     if (!Utils.isEmptyArray(params.siteIDs)) {
       filters.siteID = {
-        $in: params.siteIDs.map((siteID) => Utils.convertToObjectID(siteID))
+        $in: params.siteIDs.map((siteID) => DatabaseUtils.convertToObjectID(siteID))
       };
     }
     // Dynamic Asset
@@ -146,7 +149,7 @@ export default class AssetStorage {
     // Limit on Asset for Basic Users
     if (!Utils.isEmptyArray(params.assetIDs)) {
       filters._id = {
-        $in: params.assetIDs.map((assetID) => Utils.convertToObjectID(assetID))
+        $in: params.assetIDs.map((assetID) => DatabaseUtils.convertToObjectID(assetID))
       };
     }
     // Filters
@@ -221,7 +224,7 @@ export default class AssetStorage {
   }
 
   public static async getAssetsInError(tenantID: string,
-      params: { search?: string; siteAreaIDs?: string[]; siteIDs?: string[]; errorType?: string[] } = {},
+      params: { search?: string; siteAreaIDs?: string[]; siteIDs?: string[]; errorType?: string[]; issuer?: boolean } = {},
       dbParams?: DbParams, projectFields?: string[]): Promise<DataResult<Asset>> {
     // Debug
     const uniqueTimerID = Logging.traceStart(tenantID, MODULE_NAME, 'getAssetsInError');
@@ -241,10 +244,13 @@ export default class AssetStorage {
       ];
     }
     if (!Utils.isEmptyArray(params.siteAreaIDs)) {
-      filters.siteAreaID = { $in: params.siteAreaIDs.map((id) => Utils.convertToObjectID(id)) };
+      filters.siteAreaID = { $in: params.siteAreaIDs.map((id) => DatabaseUtils.convertToObjectID(id)) };
     }
     if (!Utils.isEmptyArray(params.siteIDs)) {
-      filters.siteID = { $in: params.siteIDs.map((id) => Utils.convertToObjectID(id)) };
+      filters.siteID = { $in: params.siteIDs.map((id) => DatabaseUtils.convertToObjectID(id)) };
+    }
+    if (Utils.objectHasProperty(params, 'issuer') && Utils.isBoolean(params.issuer)) {
+      filters.issuer = params.issuer;
     }
     // Create Aggregation
     const aggregation = [];
@@ -313,10 +319,10 @@ export default class AssetStorage {
     await DatabaseUtils.checkTenant(tenantID);
     // Delete the Asset
     await global.database.getCollection<Asset>(tenantID, 'assets')
-      .findOneAndDelete({ '_id': Utils.convertToObjectID(id) });
+      .findOneAndDelete({ '_id': DatabaseUtils.convertToObjectID(id) });
     // Delete Image
     await global.database.getCollection<any>(tenantID, 'assetimages')
-      .findOneAndDelete({ '_id': Utils.convertToObjectID(id) });
+      .findOneAndDelete({ '_id': DatabaseUtils.convertToObjectID(id) });
     // Debug
     await Logging.traceEnd(tenantID, MODULE_NAME, 'deleteAsset', uniqueTimerID, { id });
   }
@@ -328,7 +334,7 @@ export default class AssetStorage {
     await DatabaseUtils.checkTenant(tenantID);
     // Modify
     await global.database.getCollection<any>(tenantID, 'assetimages').findOneAndUpdate(
-      { '_id': Utils.convertToObjectID(assetID) },
+      { '_id': DatabaseUtils.convertToObjectID(assetID) },
       { $set: { image: assetImageToSave } },
       { upsert: true });
     // Debug

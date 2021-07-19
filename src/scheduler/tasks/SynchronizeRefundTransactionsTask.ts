@@ -26,7 +26,7 @@ export default class SynchronizeRefundTransactionsTask extends SchedulerTask {
       return;
     }
     // Get Concur Settings
-    const refundConnector = await RefundFactory.getRefundImpl(tenant.id);
+    const refundConnector = await RefundFactory.getRefundImpl(tenant);
     if (!refundConnector) {
       await Logging.logDebug({
         tenantID: tenant.id,
@@ -45,7 +45,7 @@ export default class SynchronizeRefundTransactionsTask extends SchedulerTask {
           { 'refundStatus': [RefundStatus.SUBMITTED] },
           { ...Constants.DB_PARAMS_MAX_LIMIT, sort: { 'userID': 1, 'refundData.reportId': 1 } });
         // Check
-        if (transactions.count > 0) {
+        if (!Utils.isEmptyArray(transactions.result)) {
           // Process them
           await Logging.logInfo({
             tenantID: tenant.id,

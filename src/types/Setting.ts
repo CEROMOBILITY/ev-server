@@ -41,7 +41,7 @@ export interface SettingDBContent {
   | CarConnectorSettingsType;
   ocpi?: OcpiSetting;
   oicp?: OicpSetting;
-  // pricing?: PricingSetting;  //TODO - reorg pricing similar to billing
+  // pricing?: PricingSetting;  // TODO - reorg pricing similar to billing
   simple?: SimplePricingSetting;
   convergentCharging?: ConvergentChargingPricingSetting;
   billing?: BillingSetting;
@@ -275,15 +275,18 @@ export interface AssetConnectionSetting {
   url: string;
   timestamp: Date;
   type: AssetConnectionType;
+  refreshIntervalMins?: number;
   schneiderConnection?: AssetSchneiderConnectionType;
   greencomConnection?: AssetGreencomConnectionType;
   iothinkConnection?: AssetIothinkConnectionType;
+  witConnection?: AssetWitConnectionType;
 }
 
 export enum AssetConnectionType {
   SCHNEIDER = 'schneider',
   GREENCOM = 'greencom',
-  IOTHINK = 'iothink'
+  IOTHINK = 'iothink',
+  WIT = 'wit',
 }
 
 export interface AssetUserPasswordConnectionType {
@@ -302,6 +305,12 @@ export interface AssetSchneiderConnectionType extends AssetUserPasswordConnectio
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface AssetIothinkConnectionType extends AssetUserPasswordConnectionType {
+}
+
+export interface AssetWitConnectionType extends AssetUserPasswordConnectionType {
+  clientId: string;
+  clientSecret: string;
+  authenticationUrl: string;
 }
 
 export enum CarConnectorSettingsType {

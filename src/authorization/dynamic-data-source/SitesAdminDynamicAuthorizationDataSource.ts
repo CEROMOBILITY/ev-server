@@ -2,9 +2,7 @@ import { DynamicAuthorizationDataSourceName, SitesAdminDynamicAuthorizationDataS
 
 import Constants from '../../utils/Constants';
 import DynamicAuthorizationDataSource from '../DynamicAuthorizationDataSource';
-import SiteStorage from '../../storage/mongodb/SiteStorage';
 import UserStorage from '../../storage/mongodb/UserStorage';
-import _ from 'lodash';
 
 export default class SitesAdminDynamicAuthorizationDataSource
   extends DynamicAuthorizationDataSource<SitesAdminDynamicAuthorizationDataSourceData> {
@@ -14,18 +12,18 @@ export default class SitesAdminDynamicAuthorizationDataSource
   }
 
   public async loadData(): Promise<void> {
-    const assignedSitesCompaniesData: SitesAdminDynamicAuthorizationDataSourceData = {};
+    const sitesAdminData: SitesAdminDynamicAuthorizationDataSourceData = {};
     // Get Site IDs from Site Admin flag
-    assignedSitesCompaniesData.siteIDs = await this.getSitesAdminSiteIDs();
+    sitesAdminData.siteIDs = await this.getSitesAdminSiteIDs();
     // Set
-    this.setData(assignedSitesCompaniesData);
+    this.setData(sitesAdminData);
   }
 
   private async getSitesAdminSiteIDs(): Promise<string[]> {
-    // Get the Site IDs of the Sites for which the user is SiteAdmin
+    // Get the Site IDs of the Sites for which the user is Site Admin
     const sites = await UserStorage.getUserSites(this.tenant.id,
       {
-        userID: this.userToken.id,
+        userIDs: [this.userToken.id],
         siteAdmin: true
       }, Constants.DB_PARAMS_MAX_LIMIT,
       ['siteID']
